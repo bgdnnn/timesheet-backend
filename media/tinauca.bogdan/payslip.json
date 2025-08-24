@@ -1,0 +1,15 @@
+{
+    "tax_code": "1085L",
+    "total_gross_pay": "1932.00",
+    "gross_for_tax": "1889.65",
+    "paye_tax": "527.40",
+    "national_insurance": "77.30",
+    "pension": "42.35",
+    "tax_period": "20",
+    "ytd_gross": "25242.60",
+    "ytd_tax": "5425.60",
+    "ytd_ni": "421.50",
+    "ytd_pension": "251.35",
+    "calculated_net_pay": "1284.95",
+    "deductions_total": "647.05"
+}

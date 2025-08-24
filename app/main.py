@@ -1,20 +1,31 @@
+# app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from .config import cors_origins_list, settings
-from .db import engine
-from .models import Base
+from .config import settings
+from .routers import auth_google
+from .routers import receipts
+from .routers import payslips
+from .routers import me, earnings, payslip_parser_endpoint, expenses
 
-from .routers.auth_google import router as google_auth_router
-from .routers.me import router as me_router
-from .routers.projects import router as projects_router
-from .routers.hotels import router as hotels_router
-from .routers.time_entries import router as time_entries_router
+# If you also have these routers, leave them; otherwise comment them out.
+from .routers import projects, hotels, time_entries
+from .db_utils import create_tables
+
+def cors_origins_list():
+    raw = (settings.CORS_ORIGINS or "").strip()
+    if not raw:
+        return []
+    return [x.strip() for x in raw.split(",") if x.strip()]
 
 app = FastAPI(title="Timesheet API")
 
-# CORS
+@app.on_event("startup")
+async def on_startup():
+    await create_tables()
+
+# Order matters: CORS first (outermost), then Session.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins_list(),
@@ -23,17 +34,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Session for OAuth state
-app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
-
-@app.on_event("startup")
-async def on_startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.JWT_SECRET,
+    session_cookie=getattr(settings, "SESSION_COOKIE_NAME", "ts_session"),
+    same_site=getattr(settings, "SESSION_SAMESITE", "lax"),
+    https_only=getattr(settings, "SESSION_HTTPS_ONLY", True),
+    domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
+)
 
 # Routers
-app.include_router(google_auth_router)
-app.include_router(me_router)
-app.include_router(projects_router)
-app.include_router(hotels_router)
-app.include_router(time_entries_router)
+app.include_router(auth_google.router)
+app.include_router(me.router)
+app.include_router(earnings.router)
+app.include_router(payslip_parser_endpoint.router)
+app.include_router(payslips.router)
+app.include_router(receipts.router)
+app.include_router(expenses.router)
+
+# Optional, if present
+app.include_router(projects.router)
+app.include_router(hotels.router)
+app.include_router(time_entries.router)
+
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
