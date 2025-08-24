@@ -7,7 +7,7 @@ from .config import settings
 from .routers import auth_google
 from .routers import receipts
 from .routers import payslips
-from .routers import me, earnings, payslip_parser_endpoint, expenses
+from .routers import me, earnings, payslip_parser_endpoint, expenses, admin
 
 # If you also have these routers, leave them; otherwise comment them out.
 from .routers import projects, hotels, time_entries
@@ -56,6 +56,7 @@ app.include_router(expenses.router)
 app.include_router(projects.router)
 app.include_router(hotels.router)
 app.include_router(time_entries.router)
+app.include_router(admin.router)
 
 @app.get("/healthz")
 async def healthz():

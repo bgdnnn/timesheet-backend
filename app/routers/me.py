@@ -18,6 +18,7 @@ class MeOut(BaseModel):
     full_name: str | None = None
     company: str | None = None
     hourly_rate: float | None = None
+    role: str
 
 class MeUpdate(BaseModel):
     company: str | None = None
@@ -41,6 +42,7 @@ async def read_me(user=Depends(get_current_user), session: AsyncSession = Depend
         full_name=db_user.full_name,
         company=db_user.company,
         hourly_rate=float(db_user.hourly_rate) if db_user.hourly_rate is not None else None,
+        role=db_user.role,
     )
 
 @router.put("/me", response_model=MeOut)
