@@ -21,6 +21,12 @@ class UserUpdate(BaseModel):
     company: Optional[str] = None
     wage: Optional[float] = None
 
+class AdminUserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    company: Optional[str] = None
+    wage: Optional[float] = None
+    role: Optional[str] = None
+
 class ProjectIn(BaseModel):
     name: str
     client: str
