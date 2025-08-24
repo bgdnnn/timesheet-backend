@@ -58,7 +58,7 @@ async def create_entry(payload: TimeEntryIn, session: AsyncSession = Depends(get
     row.updated_date = row.updated_at
     return row
 
-@router.patch("/{tid}", response_model=TimeEntryOut)
+@router.put("/{tid}", response_model=TimeEntryOut)
 async def update_entry(tid: int, payload: TimeEntryIn, session: AsyncSession = Depends(get_session), current=Depends(get_current_user)):
     duration = int(round((payload.hours_worked + payload.travel_time) * 60))
     await session.execute(
