@@ -82,14 +82,13 @@ class Expense(Base):
     __tablename__ = "expenses"
     id = Column(Integer, primary_key=True, index=True)
     created_by = Column(String, index=True, nullable=False)
-    receipt_id = Column(Integer, ForeignKey("receipts.id"), nullable=False)
+    receipt_id = Column(Integer, ForeignKey("receipts.id"), nullable=True)
     time_entry_id = Column(Integer, ForeignKey("time_entries.id"), nullable=True)
     entry_date = Column(Date, index=True, nullable=False)
-    vendor_name = Column(String, nullable=True)
+    vendor = Column(String, nullable=True)
+    expense_type = Column(String, nullable=True)
     total_amount = Column(Numeric(10, 2), nullable=True)
     currency = Column(String(3), nullable=True, default="GBP")
-    status = Column(String(20), nullable=False, default="parsed")  # parsed|needs_review
-    raw_text = Column(String, nullable=True)
     created_date = Column(DateTime, server_default=func.now(), nullable=False)
 
 
