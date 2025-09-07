@@ -82,15 +82,23 @@ class ReceiptOut(BaseModel):
     created_date: datetime
     class Config: from_attributes = True
 
+class ExpenseIn(BaseModel):
+    entry_date: date
+    vendor: Optional[str] = None
+    expense_type: Optional[str] = None
+    total_amount: Decimal
+    receipt_id: Optional[int] = None
+
 class ExpenseOut(BaseModel):
     id: int
-    receipt_id: int
+    receipt_id: int | None
+    receipt_filename: Optional[str] = None
     time_entry_id: int | None
     entry_date: date
-    vendor_name: str | None
+    vendor: str | None
+    expense_type: str | None
     total_amount: Decimal | None
     currency: str | None
-    status: str
     created_date: datetime
     class Config: from_attributes = True
 

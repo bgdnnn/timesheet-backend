@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime
 from pathlib import Path
@@ -81,14 +81,24 @@ async def upload_receipts(
     base_dir.mkdir(parents=True, exist_ok=True)
     created: list[Receipt] = []
 
+    daily_index_res = await session.execute(
+        select(func.count(Receipt.id))
+        .where(Receipt.entry_date == d)
+        .where(Receipt.created_by == user.email)
+    )
+    daily_index = daily_index_res.scalar()
+
     for up in files:
+        daily_index += 1
         ctype = up.content_type or mimetypes.guess_type(up.filename or "")[0] or "application/octet-stream"
         if not ctype.startswith("image/"):
             raise HTTPException(415, f"Unsupported type: {ctype}")
 
-        ts = datetime.utcnow().strftime("%H%M%S%f")
+        date_str = d.strftime("%d%m%y")
         ext = Path(up.filename or "").suffix or ".jpg"
-        dest = base_dir / f"{ts}{ext}"
+        new_filename = f"{daily_index}-{date_str}{ext}"
+        dest = base_dir / new_filename
+
         with dest.open("wb") as f:
             shutil.copyfileobj(up.file, f)
 
@@ -97,32 +107,12 @@ async def upload_receipts(
             time_entry_id=time_entry_id,
             entry_date=d,
             file_path=str(dest),
-            original_filename=up.filename,
+            original_filename=new_filename,
             mime_type=ctype,
             size_bytes=dest.stat().st_size,
         )
         session.add(rec)
         await session.flush()
-
-        # OCR -> Expense row
-        try:
-            text = _ocr_text(dest)
-        except Exception:
-            text = ""
-        cur, amt = _parse_amount(text)
-        vendor = _parse_vendor(text)
-        exp = Expense(
-            created_by=user.email,
-            receipt_id=rec.id,
-            time_entry_id=time_entry_id,
-            entry_date=d,
-            vendor_name=vendor,
-            total_amount=amt,
-            currency=cur or "GBP",
-            status="parsed" if amt is not None else "needs_review",
-            raw_text=text[:4000],
-        )
-        session.add(exp)
         created.append(rec)
 
     await session.commit()
@@ -172,3 +162,11 @@ async def delete_receipt(receipt_id: int, session: AsyncSession = Depends(get_se
     # Delete receipt
     await session.delete(rec)
     await session.commit()
+
+@router.get("/all", response_model=list[ReceiptOut])
+async def list_all_receipts(
+    session: AsyncSession = Depends(get_session), user=Depends(get_current_user)
+):
+    q = select(Receipt).where(Receipt.created_by == user.email).order_by(Receipt.entry_date.desc(), Receipt.created_date.desc(), Receipt.id.desc())
+    rows = (await session.execute(q)).scalars().all()
+    return rows
