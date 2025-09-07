@@ -151,3 +151,24 @@ async def get_file(receipt_id: int, session: AsyncSession = Depends(get_session)
     if not p.exists():
         raise HTTPException(404, "File missing")
     return FileResponse(str(p), media_type=rec.mime_type or "application/octet-stream", filename=rec.original_filename or p.name)
+
+@router.delete("/{receipt_id}", status_code=204)
+async def delete_receipt(receipt_id: int, session: AsyncSession = Depends(get_session), user=Depends(get_current_user)):
+    rec = await session.get(Receipt, receipt_id)
+    if not rec or rec.created_by != user.email:
+        raise HTTPException(404, "Not found")
+
+    # Delete associated expense
+    q = select(Expense).where(Expense.receipt_id == receipt_id)
+    ex = (await session.execute(q)).scalar_one_or_none()
+    if ex:
+        await session.delete(ex)
+
+    # Delete receipt file
+    p = Path(rec.file_path)
+    if p.exists():
+        p.unlink()
+
+    # Delete receipt
+    await session.delete(rec)
+    await session.commit()
