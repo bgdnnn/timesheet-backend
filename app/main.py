@@ -38,8 +38,8 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.JWT_SECRET,
     session_cookie=getattr(settings, "SESSION_COOKIE_NAME", "ts_session"),
-    same_site=getattr(settings, "SESSION_SAMESITE", "lax"),
-    https_only=getattr(settings, "SESSION_HTTPS_ONLY", True),
+    same_site="none",
+    https_only=True,
     domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
 )
 

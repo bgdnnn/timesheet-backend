@@ -66,12 +66,19 @@ async def google_callback(request: Request, session: AsyncSession = Depends(get_
     access = make_token({"sub": str(user.id)}, minutes=settings.ACCESS_TOKEN_MINUTES)
     return_to = request.session.pop("oauth_return_to", "/")
 
-    # send token back to SPA via URL fragment
-    redirect_url = (return_to or "/").split("#")[0]
-    redirect_url = f"{redirect_url}#access_token={access}"
-    resp = RedirectResponse(url=redirect_url, status_code=302)
-    resp.set_cookie("access_token", access, httponly=True, secure=True, samesite="lax", max_age=3600, path="/")
-    return resp
+    # Set the token in a secure, HTTP-only cookie
+    frontend_url = f"https://timesheet.home-clouds.com{return_to or '/'}"
+    response = RedirectResponse(url=frontend_url, status_code=302)
+    response.set_cookie(
+        "access_token",
+        access,
+        httponly=True,
+        secure=True,
+        samesite="lax",  # Use "lax" for same-domain contexts
+        max_age=settings.ACCESS_TOKEN_MINUTES * 60,
+        path="/",
+    )
+    return response
 
 @router.post("/logout")
 async def logout(request: Request):
@@ -80,15 +87,10 @@ async def logout(request: Request):
     cookie_path = "/"
 
     request.session.clear()
-    # Instead of returning JSON, we return a redirect to the login page.
-    # The frontend URL needs to be known or configured.
-    # Assuming it's configured in settings.CORS_ORIGINS
-    origins = (settings.CORS_ORIGINS or "").split(",")
-    frontend_url = origins[0] if origins else "/"
-    response = RedirectResponse(url=f"{frontend_url}/login", status_code=303) # 303 See Other is appropriate for POST->GET redirect
     
-    response.delete_cookie("access_token", path=cookie_path, domain=cookie_domain)
-    response.delete_cookie(session_cookie_name, path=cookie_path, domain=cookie_domain)
+    response = JSONResponse(content={"ok": True, "message": "Logged out successfully"})
+    response.delete_cookie("access_token", path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="none")
+    response.delete_cookie(session_cookie_name, path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="none")
     
     return response
 
