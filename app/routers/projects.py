@@ -12,11 +12,16 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 @router.get("", response_model=list[ProjectOut])
 async def list_projects(
     sort: str | None = None,
+    archived: bool = False,
     created_by: str | None = None,  # ignored for security; ownership enforced
     session: AsyncSession = Depends(get_session),
     current=Depends(get_current_user),
 ):
-    stmt = select(Project).where(Project.owner_user_id == current.id)
+    stmt = select(Project).where(
+        Project.owner_user_id == current.id,
+        Project.is_deleted == False,
+        Project.archived == archived,
+    )
     stmt = apply_sort(stmt, Project, sort or "-created_at")
     rows = (await session.execute(stmt)).scalars().all()
     # Map date aliases
@@ -48,7 +53,7 @@ async def create_project(
     proj.updated_date = proj.updated_at
     return proj
 
-@router.patch("/{pid}", response_model=ProjectOut)
+@router.put("/{pid}", response_model=ProjectOut)
 async def update_project(
     pid: int,
     payload: ProjectIn,
@@ -76,6 +81,40 @@ async def delete_project(
     session: AsyncSession = Depends(get_session),
     current=Depends(get_current_user),
 ):
-    await session.execute(delete(Project).where(Project.id == pid, Project.owner_user_id == current.id))
+    await session.execute(
+        update(Project)
+        .where(Project.id == pid, Project.owner_user_id == current.id)
+        .values(is_deleted=True)
+    )
     await session.commit()
     return {"status": "ok"}
+
+
+@router.post("/{pid}/archive", response_model=ProjectOut)
+async def archive_project(
+    pid: int,
+    session: AsyncSession = Depends(get_session),
+    current=Depends(get_current_user),
+):
+    await session.execute(
+        update(Project)
+        .where(Project.id == pid, Project.owner_user_id == current.id)
+        .values(archived=True)
+    )
+    await session.commit()
+    return (await session.execute(select(Project).where(Project.id == pid))).scalar_one()
+
+
+@router.post("/{pid}/restore", response_model=ProjectOut)
+async def restore_project(
+    pid: int,
+    session: AsyncSession = Depends(get_session),
+    current=Depends(get_current_user),
+):
+    await session.execute(
+        update(Project)
+        .where(Project.id == pid, Project.owner_user_id == current.id)
+        .values(archived=False)
+    )
+    await session.commit()
+    return (await session.execute(select(Project).where(Project.id == pid))).scalar_one()
