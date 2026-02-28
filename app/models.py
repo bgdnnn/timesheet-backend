@@ -34,6 +34,7 @@ class Project(Base):
     default_hours_worked: Mapped[float] = mapped_column(Float, default=8.0)
     default_travel_time: Mapped[float] = mapped_column(Float, default=0.0)
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     created_by: Mapped[str] = mapped_column(String(255))  # store email snapshot
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
