@@ -13,6 +13,10 @@ class User(Base):
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     wage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_calculator_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    employment_type: Mapped[str] = mapped_column(String(32), default="employed") # "employed" or "self_employed"
+    guild_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    has_payslip: Mapped[bool] = mapped_column(Boolean, default=False)
     @property
     def hourly_rate(self) -> float | None:
         return self.wage
@@ -59,7 +63,7 @@ class TimeEntry(Base):
     date: Mapped[datetime | Date] = mapped_column(Date)  # yyyy-mm-dd
     hours_worked: Mapped[float] = mapped_column(Float, default=0.0)
     travel_time: Mapped[float] = mapped_column(Float, default=0.0)
-    hotel_id: Mapped[int | None] = mapped_column(ForeignKey("hotels.id"), nullable=True)
+    hotel_id: Mapped[int | None] = mapped_column(ForeignKey("hotels.id", ondelete="SET NULL"), nullable=True)
     hotel_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     duration_minutes: Mapped[int] = mapped_column(Integer, default=0)  # computed
     notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
@@ -133,4 +137,19 @@ class WeeklyEarnings(Base):
     national_insurance = Column(Numeric(10,2), nullable=True)
     pension = Column(Numeric(10,2), nullable=True)
     net_pay = Column(Numeric(10,2), nullable=True)
+    hourly_wage: Mapped[float | None] = mapped_column(Float, nullable=True) # New column
+    employment_type: Mapped[str] = mapped_column(String(32), default="employed")
+    guild_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_manual_wage: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+class PayslipFile(Base):
+    __tablename__ = "payslip_files"
+    id = Column(Integer, primary_key=True)
+    created_by = Column(String, index=True, nullable=False)
+    file_path = Column(String, nullable=False)
+    filename = Column(String, nullable=False) # e.g. 25-26_50.pdf
+    tax_year = Column(String(10), nullable=False) # e.g. 25-26
+    tax_week = Column(Integer, nullable=False)
+    process_date = Column(Date, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

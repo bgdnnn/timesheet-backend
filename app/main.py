@@ -7,7 +7,8 @@ from .config import settings
 from .routers import auth_google
 from .routers import receipts
 from .routers import payslips
-from .routers import me, earnings, payslip_parser_endpoint, expenses, admin
+from .routers import payslip_files
+from .routers import me, earnings, expenses, admin
 
 # If you also have these routers, leave them; otherwise comment them out.
 from .routers import projects, hotels, time_entries
@@ -47,8 +48,8 @@ app.add_middleware(
 app.include_router(auth_google.router)
 app.include_router(me.router)
 app.include_router(earnings.router)
-app.include_router(payslip_parser_endpoint.router)
 app.include_router(payslips.router)
+app.include_router(payslip_files.router)
 app.include_router(receipts.router)
 app.include_router(expenses.router)
 

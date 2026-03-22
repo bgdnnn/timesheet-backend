@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel
@@ -11,6 +11,10 @@ class UserOut(BaseModel):
     full_name: Optional[str] = None
     company: Optional[str] = None
     wage: Optional[float] = None
+    is_calculator_enabled: bool = True
+    employment_type: str = "employed"
+    guild_tax: Optional[float] = None
+    has_payslip: bool = False
     role: str
     created_date: datetime | None = None
     updated_date: datetime | None = None
@@ -20,11 +24,17 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     company: Optional[str] = None
     wage: Optional[float] = None
+    is_calculator_enabled: Optional[bool] = None
+    employment_type: Optional[str] = None
+    guild_tax: Optional[float] = None
 
 class AdminUserUpdate(BaseModel):
     full_name: Optional[str] = None
     company: Optional[str] = None
     wage: Optional[float] = None
+    is_calculator_enabled: Optional[bool] = None
+    employment_type: Optional[str] = None
+    guild_tax: Optional[float] = None
     role: Optional[str] = None
 
 class ProjectIn(BaseModel):
@@ -112,8 +122,6 @@ class ExpenseGroupOut(BaseModel):
     count: int
     total: Decimal | None
 
-
-
 class PayrollProfileOut(BaseModel):
     created_by: str
     username: str | None
@@ -140,5 +148,45 @@ class WeeklyEarningsOut(BaseModel):
     national_insurance: Decimal | None
     pension: Decimal | None
     net_pay: Decimal | None
+    hourly_wage: Decimal | None
+    tax_week: Optional[int] = None
+    employment_type: str = "employed"
+    guild_tax: Decimal | None = None
+    is_manual_wage: bool = False
     created_at: datetime
     class Config: from_attributes = True
+
+class PayslipFileOut(BaseModel):
+    id: int
+    filename: str
+    tax_year: str
+    tax_week: int
+    process_date: date
+    created_at: datetime
+    class Config: from_attributes = True
+
+class ManualPayslipIn(BaseModel):
+    tax_code: str = ""
+    total_gross_pay: Decimal = Decimal("0")
+    gross_for_tax: Decimal = Decimal("0")
+    paye_tax: Decimal = Decimal("0")
+    national_insurance: Decimal = Decimal("0")
+    pension: Decimal = Decimal("0")
+    tax_period: int = 1
+    ytd_gross: Decimal = Decimal("0")
+    ytd_tax: Decimal = Decimal("0")
+    ytd_ni: Decimal = Decimal("0")
+    calculated_net_pay: Decimal = Decimal("0")
+    deductions_total: Decimal = Decimal("0")
+    process_date: Optional[str] = None
+
+    @field_validator("process_date")
+    @classmethod
+    def validate_process_date(cls, v):
+        if v is None:
+            return v
+        try:
+            datetime.strptime(v, "%d/%m/%Y")
+        except ValueError:
+            raise ValueError("Process date must be in DD/MM/YYYY format")
+        return v

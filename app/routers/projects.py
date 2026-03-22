@@ -12,7 +12,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 @router.get("", response_model=list[ProjectOut])
 async def list_projects(
     sort: str | None = None,
-    archived: bool = False,
+    archived: bool | None = None,
     created_by: str | None = None,  # ignored for security; ownership enforced
     session: AsyncSession = Depends(get_session),
     current=Depends(get_current_user),
@@ -20,8 +20,10 @@ async def list_projects(
     stmt = select(Project).where(
         Project.owner_user_id == current.id,
         Project.is_deleted == False,
-        Project.archived == archived,
     )
+    if archived is not None:
+        stmt = stmt.where(Project.archived == archived)
+    
     stmt = apply_sort(stmt, Project, sort or "-created_at")
     rows = (await session.execute(stmt)).scalars().all()
     # Map date aliases
