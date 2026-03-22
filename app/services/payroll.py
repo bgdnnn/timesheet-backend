@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..models import PayrollProfile, User
 from ..lib.uk_tax import calc_pay_period, D
-from ..utils.payslip_parser import parse_payslip
 from ..utils.users import user_slug_from_identity
 
 

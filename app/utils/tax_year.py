@@ -13,3 +13,8 @@ def get_tax_year_start_date(d: date) -> date:
 def tax_period_to_date(tax_year: int, tax_period: int) -> date:
     tax_year_start = get_tax_year_start(tax_year)
     return tax_year_start + timedelta(weeks=int(tax_period) - 1)
+
+def get_tax_week(d: date) -> int:
+    tax_year_start = get_tax_year_start_date(d)
+    delta = d - tax_year_start
+    return (delta.days // 7) + 1
