@@ -96,7 +96,7 @@ async def view_payslip_file(
     if not path.exists():
         raise HTTPException(404, "File not found on disk")
 
-    return FileResponse(path, media_type="application/pdf", filename=pf.filename, content_disposition_type="inline")
+    return FileResponse(path, media_type="application/pdf", content_disposition_type="inline")
 
 @router.get("/{file_id}/download")
 async def download_payslip_file(

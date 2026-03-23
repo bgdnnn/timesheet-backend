@@ -153,3 +153,14 @@ class PayslipFile(Base):
     tax_week = Column(Integer, nullable=False)
     process_date = Column(Date, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+class Training(Base):
+    __tablename__ = "trainings"
+    id = Column(Integer, primary_key=True)
+    created_by = Column(String, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    expiry_date = Column(Date, nullable=False)
+    file_path = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    mime_type = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)

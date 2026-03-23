@@ -74,9 +74,10 @@ async def google_callback(request: Request, session: AsyncSession = Depends(get_
         access,
         httponly=True,
         secure=True,
-        samesite="lax",  # Use "lax" for same-domain contexts
+        samesite="lax",  # Changed to lax for same-site subdomains
         max_age=settings.ACCESS_TOKEN_MINUTES * 60,
         path="/",
+        domain=settings.SESSION_COOKIE_DOMAIN, # Added domain
     )
     return response
 
