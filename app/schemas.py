@@ -165,6 +165,19 @@ class PayslipFileOut(BaseModel):
     created_at: datetime
     class Config: from_attributes = True
 
+class TrainingOut(BaseModel):
+    id: int
+    name: str
+    expiry_date: date
+    filename: str
+    mime_type: str
+    created_at: datetime
+    class Config: from_attributes = True
+
+class TrainingUpdate(BaseModel):
+    name: Optional[str] = None
+    expiry_date: Optional[date] = None
+
 class ManualPayslipIn(BaseModel):
     tax_code: str = ""
     total_gross_pay: Decimal = Decimal("0")
