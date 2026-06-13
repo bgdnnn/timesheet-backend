@@ -4,7 +4,16 @@
 BACKUP_DIR="/srv/backups/timesheet"
 DB_NAME="timesheet"
 DB_USER="timesheet"
-DB_PASS="s/jlfC6REZpGohIMncEQd1FelVLyVaZT9m93i31ibzA="
+
+# Extract password from .env file
+ENV_FILE="/srv/timesheet-backend/.env"
+DB_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | cut -d '=' -f2-)
+# Extract the password between 'timesheet:' and '@'
+# e.g. postgresql+asyncpg://timesheet:password@localhost...
+RAW_PASS=$(echo "$DB_URL" | sed -E 's/.*:\/\/.*:(.*)@.*/\1/')
+# URL decode the password
+DB_PASS=$(python3 -c "import urllib.parse, sys; print(urllib.parse.unquote(sys.argv[1]))" "$RAW_PASS")
+
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_$TIMESTAMP.sql"
 RETENTION_DAYS=30
