@@ -164,3 +164,12 @@ class Training(Base):
     filename = Column(String, nullable=False)
     mime_type = Column(String, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+class Note(Base):
+    __tablename__ = "notes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_by: Mapped[str] = mapped_column(String(255), index=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    content: Mapped[str] = mapped_column(String(2000))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
