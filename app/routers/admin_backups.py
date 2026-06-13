@@ -63,12 +63,14 @@ async def restore_backup(filename: str, admin: User = Depends(get_admin_user)):
     if not backup_path.exists():
         raise HTTPException(status_code=404, detail="Backup file not found")
 
-    # DB Config (hardcoded to match backup script for now, should use env)
-    DB_NAME = "timesheet"
-    DB_USER = "timesheet"
-    # Note: Using DB_PASS from env in real scenarios is better.
-    # We'll use a temporary env for the subprocess.
-    db_pass = "s/jlfC6REZpGohIMncEQd1FelVLyVaZT9m93i31ibzA="
+    # Parse password from DATABASE_URL
+    db_url = settings.DATABASE_URL
+    import urllib.parse
+    try:
+        # Example format: postgresql+asyncpg://timesheet:password@localhost:5432/timesheet
+        db_pass = urllib.parse.unquote(db_url.split(":")[2].split("@")[0])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not parse database credentials")
 
     try:
         # 1. Uncompress to temporary file
