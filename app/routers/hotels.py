@@ -40,7 +40,7 @@ async def create_hotel(payload: HotelIn, session: AsyncSession = Depends(get_ses
     hotel.updated_date = hotel.updated_at
     return hotel
 
-@router.patch("/{hid}", response_model=HotelOut)
+@router.put("/{hid}", response_model=HotelOut)
 async def update_hotel(hid: int, payload: HotelIn, session: AsyncSession = Depends(get_session), current=Depends(get_current_user)):
     await session.execute(
         update(Hotel).where(Hotel.id == hid, Hotel.owner_user_id == current.id).values(
