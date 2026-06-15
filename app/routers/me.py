@@ -126,6 +126,35 @@ async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: 
     # refresh
     db_user = (await session.execute(q)).scalars().first()
 
+    # Verify and trigger download immediately if auto-upload is enabled
+    if db_user.is_auto_upload_enabled and db_user.auto_upload_email and db_user.auto_upload_app_password:
+        import asyncio
+        import sys
+        
+        # Run downloader script as subprocess
+        python_bin = sys.executable or "/srv/timesheet-backend/.venv/bin/python3"
+        script_path = "/home/bgdn/download_payslips.py"
+        
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                python_bin,
+                script_path,
+                "--email",
+                db_user.email,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                err_msg = stderr.decode().strip() or stdout.decode().strip() or "Connection/Login verification failed"
+                if err_msg.startswith("Error: "):
+                    err_msg = err_msg[7:]
+                raise HTTPException(status_code=400, detail=f"Auto-upload setup failed: {err_msg}")
+        except HTTPException:
+            raise
+        except Exception as proc_err:
+            raise HTTPException(status_code=500, detail=f"Failed to run auto-upload verification: {proc_err}")
+
     return MeOut(
         email=db_user.email,
         full_name=db_user.full_name,
