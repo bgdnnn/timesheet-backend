@@ -17,6 +17,15 @@ class User(Base):
     employment_type: Mapped[str] = mapped_column(String(32), default="employed") # "employed" or "self_employed"
     guild_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
     has_payslip: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Automatic upload settings
+    is_auto_upload_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_upload_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    auto_upload_folder: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auto_upload_company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auto_upload_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auto_upload_app_password: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    pdf_password: Mapped[str | None] = mapped_column(String(512), nullable=True)
     @property
     def hourly_rate(self) -> float | None:
         return self.wage

@@ -13,6 +13,8 @@ from ..utils.users import user_slug_from_identity
 
 router = APIRouter(prefix="", tags=["me"])
 
+from ..utils.security import encrypt_value, decrypt_value
+
 class MeOut(BaseModel):
     email: str
     full_name: str | None = None
@@ -23,6 +25,13 @@ class MeOut(BaseModel):
     employment_type: str = "employed"
     guild_tax: float | None = None
     has_payslip: bool = False
+    is_auto_upload_enabled: bool = False
+    auto_upload_provider: str | None = None
+    auto_upload_folder: str | None = None
+    auto_upload_company: str | None = None
+    auto_upload_email: str | None = None
+    auto_upload_app_password: str | None = None
+    pdf_password: str | None = None
 
 class MeUpdate(BaseModel):
     company: str | None = None
@@ -30,6 +39,13 @@ class MeUpdate(BaseModel):
     is_calculator_enabled: bool | None = None
     employment_type: str | None = None
     guild_tax: float | None = None
+    is_auto_upload_enabled: bool | None = None
+    auto_upload_provider: str | None = None
+    auto_upload_folder: str | None = None
+    auto_upload_company: str | None = None
+    auto_upload_email: str | None = None
+    auto_upload_app_password: str | None = None
+    pdf_password: str | None = None
 
     @field_validator("wage")
     @classmethod
@@ -54,6 +70,13 @@ async def read_me(user=Depends(get_current_user), session: AsyncSession = Depend
         employment_type=db_user.employment_type,
         guild_tax=db_user.guild_tax,
         has_payslip=db_user.has_payslip,
+        is_auto_upload_enabled=db_user.is_auto_upload_enabled,
+        auto_upload_provider=db_user.auto_upload_provider,
+        auto_upload_folder=db_user.auto_upload_folder,
+        auto_upload_company=db_user.auto_upload_company,
+        auto_upload_email=db_user.auto_upload_email,
+        auto_upload_app_password=decrypt_value(db_user.auto_upload_app_password),
+        pdf_password=decrypt_value(db_user.pdf_password),
     )
 
 @router.put("/me", response_model=MeOut)
@@ -78,6 +101,27 @@ async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: 
     if payload.guild_tax is not None:
         db_user.guild_tax = payload.guild_tax
 
+    if payload.is_auto_upload_enabled is not None:
+        db_user.is_auto_upload_enabled = payload.is_auto_upload_enabled
+        
+    if payload.auto_upload_provider is not None:
+        db_user.auto_upload_provider = payload.auto_upload_provider.strip() if payload.auto_upload_provider else None
+        
+    if payload.auto_upload_folder is not None:
+        db_user.auto_upload_folder = payload.auto_upload_folder.strip() if payload.auto_upload_folder else None
+        
+    if payload.auto_upload_company is not None:
+        db_user.auto_upload_company = payload.auto_upload_company.strip() if payload.auto_upload_company else None
+        
+    if payload.auto_upload_email is not None:
+        db_user.auto_upload_email = payload.auto_upload_email.strip() if payload.auto_upload_email else None
+        
+    if payload.auto_upload_app_password is not None:
+        db_user.auto_upload_app_password = encrypt_value(payload.auto_upload_app_password.strip()) if payload.auto_upload_app_password else None
+        
+    if payload.pdf_password is not None:
+        db_user.pdf_password = encrypt_value(payload.pdf_password.strip()) if payload.pdf_password else None
+
     await session.commit()
     # refresh
     db_user = (await session.execute(q)).scalars().first()
@@ -92,6 +136,13 @@ async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: 
         employment_type=db_user.employment_type,
         guild_tax=db_user.guild_tax,
         has_payslip=db_user.has_payslip,
+        is_auto_upload_enabled=db_user.is_auto_upload_enabled,
+        auto_upload_provider=db_user.auto_upload_provider,
+        auto_upload_folder=db_user.auto_upload_folder,
+        auto_upload_company=db_user.auto_upload_company,
+        auto_upload_email=db_user.auto_upload_email,
+        auto_upload_app_password=decrypt_value(db_user.auto_upload_app_password),
+        pdf_password=decrypt_value(db_user.pdf_password),
     )
 
 @router.get("/me/payslip")
