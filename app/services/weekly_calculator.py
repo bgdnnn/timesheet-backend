@@ -71,6 +71,12 @@ async def recalculate_all_earnings(user_obj: User):
                 except (ValueError, TypeError):
                     pass
 
+        today = date.today()
+        tax_year_start = get_tax_year_start_date(today)
+        if payslip_week_start and payslip_week_start < tax_year_start:
+            payslip_week_start = None
+            payslip_data = {}
+
         # 3. Anchor week (Only if employed)
         if payslip_week_start and user.employment_type == "employed" and profile:
             # Preservation logic
@@ -96,9 +102,7 @@ async def recalculate_all_earnings(user_obj: User):
             session.add(payslip_week_earnings)
 
         # 4. Calculation Loop
-        today = date.today()
         current_week_start = week_monday(today)
-        tax_year_start = get_tax_year_start_date(today)
         
         q_te = select(TimeEntry).where(
             TimeEntry.created_by == user.email,

@@ -12,3 +12,6 @@ httpx
 email-validator
 alembic
 psycopg2-binary
+google-cloud-storage
+google-api-python-client
+google-auth-httplib2

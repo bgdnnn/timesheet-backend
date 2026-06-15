@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update
 from ..config import settings
 from ..db import get_session
-from ..models import User
+from ..models import User, SystemSetting
 from ..auth import make_token
 from pydantic import BaseModel
 import secrets, time
@@ -23,9 +23,10 @@ oauth.register(
 )
 
 @router.get("/google/login")
-async def google_login(request: Request, returnTo: str | None = None):
+async def google_login(request: Request, returnTo: str | None = None, action: str | None = "login"):
     # ensure the session is definitely mutated so cookie is set on this 302
     request.session["oauth_return_to"] = returnTo or "/"
+    request.session["oauth_action"] = action or "login"
     request.session["oauth_touch"] = time.time()  # guaranteed write
 
     # (optional) manually set state for extra robustness
@@ -53,9 +54,24 @@ async def google_callback(request: Request, session: AsyncSession = Depends(get_
     email = userinfo.get("email")
     full_name = userinfo.get("name")
 
+    action = request.session.pop("oauth_action", "login")
+
     # Upsert user
     user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if not user:
+        # Check system settings for signups
+        setting = (await session.execute(select(SystemSetting).where(SystemSetting.key == "signup_enabled"))).scalar_one_or_none()
+        signup_enabled = setting.value.lower() == "true" if setting else True
+        if not signup_enabled:
+            frontend_url = "https://timesheet.home-clouds.com/login?error=signups_closed"
+            response = RedirectResponse(url=frontend_url, status_code=302)
+            return response
+
+        if action == "login":
+            frontend_url = "https://timesheet.home-clouds.com/login?error=account_not_found"
+            response = RedirectResponse(url=frontend_url, status_code=302)
+            return response
+
         await session.execute(insert(User).values(email=email, full_name=full_name, role="user"))
     else:
         await session.execute(update(User).where(User.id == user.id).values(full_name=full_name))
@@ -99,3 +115,10 @@ class CurrentUser(BaseModel):
     email: str
     full_name: str | None = None
     picture: str | None = None
+
+@router.get("/signup-enabled")
+async def is_signup_enabled_endpoint(session: AsyncSession = Depends(get_session)):
+    setting = (await session.execute(select(SystemSetting).where(SystemSetting.key == "signup_enabled"))).scalar_one_or_none()
+    if not setting:
+        return {"signup_enabled": True}
+    return {"signup_enabled": setting.value.lower() == "true"}

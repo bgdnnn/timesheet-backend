@@ -9,10 +9,13 @@ from datetime import datetime
 from ..db import get_session
 from ..auth import get_admin_user
 from ..models import User
+from ..config import settings
 
 router = APIRouter(prefix="/admin/backups", tags=["admin-backups"])
 
 BACKUP_DIR = "/srv/backups/timesheet"
+DB_USER = "timesheet"
+DB_NAME = "timesheet"
 
 @router.get("")
 async def list_backups(admin: User = Depends(get_admin_user)):
@@ -24,7 +27,7 @@ async def list_backups(admin: User = Depends(get_admin_user)):
         return []
     
     files = []
-    for f in path.glob("*.sql.gz"):
+    for f in path.glob("*.tar.gz"):
         stat = f.stat()
         files.append({
             "filename": f.name,
@@ -52,7 +55,7 @@ async def trigger_backup(admin: User = Depends(get_admin_user)):
 @router.post("/restore/{filename}")
 async def restore_backup(filename: str, admin: User = Depends(get_admin_user)):
     """
-    Restore the database from a backup file.
+    Restore the database and media files from a backup file.
     DANGER: This is destructive.
     """
     # Security: check if filename is safe (no .. or /)
@@ -73,14 +76,21 @@ async def restore_backup(filename: str, admin: User = Depends(get_admin_user)):
         raise HTTPException(status_code=500, detail="Could not parse database credentials")
 
     try:
-        # 1. Uncompress to temporary file
-        temp_sql = "/tmp/restore_temp.sql"
-        with open(temp_sql, "wb") as f:
-            subprocess.run(["gunzip", "-c", str(backup_path)], stdout=f, check=True)
+        import shutil
+        # 1. Create temporary directory for extraction
+        temp_restore_dir = "/tmp/restore_temp_dir"
+        if os.path.exists(temp_restore_dir):
+            shutil.rmtree(temp_restore_dir)
+        os.makedirs(temp_restore_dir)
 
-        # 2. Restore using psql
-        # -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" to clear existing data
-        # Then run the sql file.
+        # Extract tar.gz
+        subprocess.run(["tar", "-xzf", str(backup_path), "-C", temp_restore_dir], check=True)
+
+        temp_sql = os.path.join(temp_restore_dir, "db.sql")
+        if not os.path.exists(temp_sql):
+            raise HTTPException(status_code=500, detail="db.sql not found in backup archive")
+
+        # 2. Restore DB using psql
         env = os.environ.copy()
         env["PGPASSWORD"] = db_pass
         
@@ -96,13 +106,19 @@ async def restore_backup(filename: str, admin: User = Depends(get_admin_user)):
                 "psql", "-h", "localhost", "-U", DB_USER, "-d", DB_NAME
             ], stdin=f, env=env, check=True)
 
-        # 3. Cleanup
-        os.remove(temp_sql)
+        # 3. Restore media files
+        backup_media_dir = os.path.join(temp_restore_dir, "media")
+        if os.path.exists(backup_media_dir):
+            media_root = "/srv/timesheet-backend/media"
+            if os.path.exists(media_root):
+                shutil.rmtree(media_root)
+            shutil.copytree(backup_media_dir, media_root)
+
+        # 4. Cleanup
+        shutil.rmtree(temp_restore_dir)
         
-        return {"status": "success", "message": f"Database restored from {filename}"}
+        return {"status": "success", "message": f"Database and media restored from {filename}"}
     except subprocess.CalledProcessError as e:
-        # Note: If it fails midway, the DB might be in a broken state (schema dropped)
-        # In a production app, we'd want more robust recovery.
         raise HTTPException(status_code=500, detail=f"Restore failed: {e.stderr or e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
