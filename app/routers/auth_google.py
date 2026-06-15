@@ -1,5 +1,5 @@
 # app/routers/auth_google.py
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import RedirectResponse, JSONResponse
 from authlib.integrations.starlette_client import OAuth
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,8 +36,30 @@ async def google_login(request: Request, returnTo: str | None = None, action: st
     redirect_uri = settings.OAUTH_REDIRECT_URI
     return await oauth.google.authorize_redirect(request, redirect_uri, state=state)
 
+async def run_auto_upload_in_background(email: str):
+    import asyncio
+    import sys
+    python_bin = sys.executable or "/srv/timesheet-backend/.venv/bin/python3"
+    script_path = "/home/bgdn/download_payslips.py"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            python_bin,
+            script_path,
+            "--email",
+            email,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+    except Exception as e:
+        print(f"Background auto-upload run failed for {email}: {e}")
+
 @router.get("/google/callback")
-async def google_callback(request: Request, session: AsyncSession = Depends(get_session)):
+async def google_callback(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session)
+):
     # Quick manual state check (helps diagnose if session not returning)
     state_param = request.query_params.get("state")
     saved_state = request.session.get("oauth_google_state")
@@ -78,6 +100,33 @@ async def google_callback(request: Request, session: AsyncSession = Depends(get_
     await session.commit()
 
     user = (await session.execute(select(User).where(User.email == email))).scalar_one()
+
+    # Trigger background checks for missing payslip of current tax week if auto-upload is enabled
+    if user.is_auto_upload_enabled and user.auto_upload_email and user.auto_upload_app_password:
+        from datetime import date
+        from ..models import PayslipFile
+        
+        today = date.today()
+        tax_start = date(today.year, 4, 6)
+        if today < tax_start:
+            tax_start = date(today.year - 1, 4, 6)
+        delta = today - tax_start
+        current_week = (delta.days // 7) + 1
+        
+        if today.month < 4 or (today.month == 4 and today.day < 6):
+            start_y, end_y = today.year - 1, today.year
+        else:
+            start_y, end_y = today.year, today.year + 1
+        current_year_str = f"{str(start_y)[2:]}-{str(end_y)[2:]}"
+        
+        q_file = select(PayslipFile).where(
+            PayslipFile.created_by == user.email,
+            PayslipFile.tax_year == current_year_str,
+            PayslipFile.tax_week == current_week
+        )
+        res_file = await session.execute(q_file)
+        if res_file.scalars().first() is None:
+            background_tasks.add_task(run_auto_upload_in_background, user.email)
 
     access = make_token({"sub": str(user.id)}, minutes=settings.ACCESS_TOKEN_MINUTES)
     return_to = request.session.pop("oauth_return_to", "/")
