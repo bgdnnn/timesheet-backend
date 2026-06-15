@@ -5,7 +5,7 @@ from typing import List
 
 from ..db import get_session
 from ..auth import get_admin_user
-from ..models import User
+from ..models import User, SystemSetting
 from ..schemas import UserOut, AdminUserUpdate
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -77,3 +77,33 @@ async def delete_user(
     await session.delete(user_to_delete)
     await session.commit()
     return {"message": "User deleted successfully"}
+
+@router.get("/settings/{key}")
+async def get_setting(
+    key: str,
+    session: AsyncSession = Depends(get_session),
+    admin: User = Depends(get_admin_user)
+):
+    setting = (await session.execute(select(SystemSetting).where(SystemSetting.key == key))).scalar_one_or_none()
+    if not setting:
+        return {"key": key, "value": "true"} # default to true
+    return {"key": key, "value": setting.value}
+
+@router.post("/settings/{key}")
+async def set_setting(
+    key: str,
+    payload: dict,
+    session: AsyncSession = Depends(get_session),
+    admin: User = Depends(get_admin_user)
+):
+    value = payload.get("value")
+    if value is None:
+        raise HTTPException(status_code=400, detail="Value is required")
+    setting = (await session.execute(select(SystemSetting).where(SystemSetting.key == key))).scalar_one_or_none()
+    if setting:
+        setting.value = str(value)
+    else:
+        setting = SystemSetting(key=key, value=str(value))
+        session.add(setting)
+    await session.commit()
+    return {"key": key, "value": setting.value}

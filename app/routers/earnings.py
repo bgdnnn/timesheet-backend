@@ -43,15 +43,66 @@ async def get_earnings_ytd(session: AsyncSession = Depends(get_session), user=De
     tax_year_start = get_tax_year_start_date(today)
 
     if user.employment_type == "employed":
-        # Pull directly from PayrollProfile which stores "Last manual YTD + subsequent weeks"
         profile = await get_profile(session, user)
         if not profile:
             return EarningsYTDOut(gross_pay=0, paye_tax=0, national_insurance=0, pension=0, net_pay=0)
         
-        gross = D(profile.ytd_gross or 0)
-        tax = D(profile.ytd_tax or 0)
-        ni = D(profile.ytd_ni or 0)
-        pension = D(profile.ytd_pension or 0)
+        safe_user = user_slug_from_identity(user)
+        json_path = Path(settings.MEDIA_ROOT) / safe_user / "payslip.json"
+        
+        payslip_week_start = None
+        payslip_data = {}
+        if json_path.exists():
+            try:
+                with open(json_path, "r") as f:
+                    payslip_data = json.load(f)
+                
+                process_date_str = payslip_data.get("process_date")
+                tax_period = payslip_data.get("tax_period")
+                
+                if process_date_str:
+                    try:
+                        process_date = datetime.strptime(process_date_str, "%d/%m/%Y").date()
+                        payslip_week_start = week_monday(process_date - timedelta(weeks=2))
+                    except (ValueError, TypeError):
+                        pass
+
+                if payslip_week_start is None and tax_period:
+                    tax_year = today.year
+                    if today.month < 4 or (today.month == 4 and today.day < 6):
+                        tax_year -= 1
+                    try:
+                        payslip_date_from_period = tax_period_to_date(tax_year, int(tax_period))
+                        payslip_week_start = week_monday(payslip_date_from_period - timedelta(weeks=2))
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                pass
+
+        if payslip_week_start and payslip_week_start < tax_year_start:
+            payslip_week_start = None
+            payslip_data = {}
+
+        gross = D(payslip_data.get("ytd_gross") or 0) if payslip_week_start else D(0)
+        tax = D(payslip_data.get("ytd_tax") or 0) if payslip_week_start else D(0)
+        ni = D(payslip_data.get("ytd_ni") or 0) if payslip_week_start else D(0)
+        pension = D(payslip_data.get("ytd_pension") or 0) if payslip_week_start else D(0)
+
+        q = select(WeeklyEarnings).where(
+            and_(
+                WeeklyEarnings.created_by == user.email,
+                WeeklyEarnings.week_start >= tax_year_start
+            )
+        )
+        if payslip_week_start:
+            q = q.where(WeeklyEarnings.week_start != payslip_week_start)
+            
+        we_rows = (await session.execute(q)).scalars().all()
+        for we in we_rows:
+            gross += D(str(we.gross_pay or 0))
+            tax += D(str(we.paye_tax or 0))
+            ni += D(str(we.national_insurance or 0))
+            pension += D(str(we.pension or 0))
         
         return EarningsYTDOut(
             gross_pay=gross,
