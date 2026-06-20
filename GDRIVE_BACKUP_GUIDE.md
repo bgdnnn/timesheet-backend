@@ -1,48 +1,78 @@
-# Google Drive Backup Setup Guide
+# Google Drive Backup Setup Guide (OAuth 2.0 User Authentication)
 
-This guide will help you complete the setup for sending automatic database backups to your Google Drive folder (utilizing your Google One 5TB quota).
+This guide will help you complete the setup for sending automatic database and media backups to your personal Google Drive (utilizing your Google One 5TB quota).
 
 ---
 
 ## Prerequisites (Completed)
 - [x] Installed Google Drive API client packages in Python venv.
-- [x] Configured [backup_db.sh](file:///srv/timesheet-backend/scripts/backup_db.sh) to support Google Drive uploads.
+- [x] Installed `google-auth-oauthlib` package.
+- [x] Created [backup_gdrive.sh](file:///srv/timesheet-backend/scripts/backup_gdrive.sh) to support Google Drive uploads.
 - [x] Created [upload_gdrive.py](file:///srv/timesheet-backend/scripts/upload_gdrive.py) handler.
+- [x] Created [gdrive_auth.py](file:///srv/timesheet-backend/scripts/gdrive_auth.py) helper for headless authorization.
 
 ---
 
 ## Steps to Complete
 
-### Step 1: Create a Service Account Key
+### Step 1: Enable Google Drive API in Google Cloud Console
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a project (or select an existing one).
-3. Go to **IAM & Admin > Service Accounts**.
-4. Create a Service Account (e.g., name it `timesheet-backup-uploader`).
-5. Open the Service Account, go to the **Keys** tab, click **Add Key > Create new key**, choose **JSON**, and download it.
-6. Copy this JSON file to your server at:
-   `/srv/timesheet-backend/gcs-credentials.json`
+2. Select your project (e.g., `Timesheet Backups`) from the top-left dropdown.
+3. In the search bar at the top, type `Google Drive API` and press Enter.
+4. Click on **Google Drive API** from the results, and click the blue **Enable** button.
 
-### Step 2: Share Google Drive Folder
-1. Go to your consumer [Google Drive](https://drive.google.com/).
-2. Create a new folder (e.g., `Database Backups`).
-3. Open your downloaded `gcs-credentials.json` file and copy the `"client_email"` address (e.g., `timesheet-backup-uploader@xxxx.iam.gserviceaccount.com`).
-4. Share the newly created folder with that email address as an **Editor**.
+---
 
-### Step 3: Configure Folder ID in Script
-1. Go into the backup folder you created in Google Drive and look at the browser URL:
-   `https://drive.google.com/drive/folders/YOUR_FOLDER_ID`
-   Copy the `YOUR_FOLDER_ID` part (it's the long string of letters and numbers at the end).
-2. Open [backup_db.sh](file:///srv/timesheet-backend/scripts/backup_db.sh#L34-L35).
-3. Replace the placeholder value for `GDRIVE_FOLDER_ID` with your actual Google Drive folder ID:
+### Step 2: Configure the OAuth Consent Screen (Crucial)
+Before creating your client credentials, you must configure the consent screen and add yourself as a test user:
+1. Go to **APIs & Services > OAuth consent screen** in the left sidebar.
+2. Select **External** as the User Type and click **Create**.
+3. Fill in the required fields:
+   - **App name:** `Timesheet Backup`
+   - **User support email:** Select your email address.
+   - **Developer contact information:** Enter your email address.
+4. Click **Save and Continue**.
+5. On the **Scopes** page, click **Save and Continue** (no extra scopes are required here).
+6. On the **Test users** page (extremely important):
+   - Click **+ Add Users**.
+   - Enter your personal Google email address (the one with the 5TB storage).
+   - Click **Save**.
+7. Click **Save and Continue**, then review the summary and click **Back to Dashboard**.
+
+---
+
+### Step 3: Create OAuth Client ID Credentials
+1. Navigate to **APIs & Services > Credentials** in the left sidebar.
+2. Click **+ Create Credentials** at the top and select **OAuth client ID**.
+3. Under **Application type**, select **Desktop app**.
+4. Set the name to `Timesheet Backup CLI Client`.
+5. Click **Create**.
+6. Find your new credentials in the table under **OAuth 2.0 Client IDs**, and click the **Download JSON** button (downward arrow) on the right side of the row.
+7. Save this JSON file on your server at:
+   `/srv/timesheet-backend/gdrive-client-secrets.json`
+
+---
+
+### Step 4: Run the Headless Authorization Script
+1. Run the authorization script on the server:
    ```bash
-   GDRIVE_FOLDER_ID="your_google_drive_folder_id_here"
+   /srv/timesheet-backend/.venv/bin/python3 /srv/timesheet-backend/scripts/gdrive_auth.py
    ```
+2. Copy the long authorization URL printed in the terminal and open it in your browser.
+3. Log in with your 5TB Google Account.
+4. You will see a warning screen saying *“Google hasn’t verified this app”*. Click **Advanced** and then click **Go to Timesheet Backup (unsafe)** to proceed.
+5. Click **Continue** to grant the requested Google Drive permissions.
+6. Your browser will attempt to redirect to `http://localhost/?state=...&code=...` and display a *"Site cannot be reached"* page. **This is normal and expected.**
+7. Copy the **entire URL** from your browser's address bar.
+8. Paste it back into your server terminal where the script is waiting, and press **Enter**.
+9. The script will exchange the authorization code for a token and save it to:
+   `/srv/timesheet-backend/gdrive-token.json`
 
 ---
 
 ## Testing Your Setup
-Once the credentials file is saved and the Folder ID is configured, you can test the backup immediately by running:
+Once the `gdrive-token.json` file is saved and the Folder ID is configured in the script, you can test the backup immediately by running:
 ```bash
-/bin/bash /srv/timesheet-backend/scripts/backup_db.sh
+/bin/bash /srv/timesheet-backend/scripts/backup_gdrive.sh
 ```
-Check if the compressed SQL backup (.sql.gz) file successfully appears in your Google Drive folder.
+Check if the compressed archive (.tar.gz) file containing your database and media files successfully appears in your Google Drive folder.

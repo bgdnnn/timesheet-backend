@@ -15,3 +15,13 @@ __pycache__/
 
 # Media files
 /media/
+
+# Payslip importer configuration and history
+/payslip_config.json
+/.payslip_history.json
+
+# Credentials and secrets
+gcs-credentials.json
+gdrive-client-secrets.json
+gdrive-token.json
+jail.local
