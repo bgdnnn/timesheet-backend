@@ -214,3 +214,14 @@ class ManualPayslipIn(BaseModel):
         except ValueError:
             raise ValueError("Process date must be in DD/MM/YYYY format")
         return v
+
+class HolidayIn(BaseModel):
+    date: date
+    type: str
+    notes: Optional[str] = None
+
+class HolidayOut(HolidayIn):
+    id: int
+    created_by: str
+    created_at: datetime
+    class Config: from_attributes = True

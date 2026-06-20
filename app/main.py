@@ -9,7 +9,7 @@ from .routers import receipts
 from .routers import payslips
 from .routers import payslip_files
 from .routers import trainings
-from .routers import notes
+from .routers import notes, holidays
 from .routers import me, earnings, expenses, admin, admin_backups
 
 # If you also have these routers, leave them; otherwise comment them out.
@@ -54,6 +54,7 @@ app.include_router(payslips.router)
 app.include_router(payslip_files.router)
 app.include_router(trainings.router)
 app.include_router(notes.router)
+app.include_router(holidays.router)
 app.include_router(receipts.router)
 app.include_router(expenses.router)
 

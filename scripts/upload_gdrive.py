@@ -1,8 +1,11 @@
 import sys
 import os
+import json
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 
 def upload_file(file_path, folder_id, credentials_path):
     if not os.path.exists(file_path):
@@ -10,11 +13,25 @@ def upload_file(file_path, folder_id, credentials_path):
         return False
     
     try:
-        # Load service account credentials
         scopes = ['https://www.googleapis.com/auth/drive']
-        creds = service_account.Credentials.from_service_account_file(
-            credentials_path, scopes=scopes
-        )
+        
+        # Determine the credential type from the JSON file content
+        with open(credentials_path, 'r') as f:
+            creds_data = json.load(f)
+            
+        if creds_data.get('type') == 'service_account':
+            print("Authenticating using Google Service Account...")
+            creds = service_account.Credentials.from_service_account_file(
+                credentials_path, scopes=scopes
+            )
+        else:
+            print("Authenticating using Google User Credentials (OAuth2)...")
+            creds = Credentials.from_authorized_user_file(credentials_path, scopes=scopes)
+            if creds and creds.expired and creds.refresh_token:
+                print("Refreshing Google Drive access token...")
+                creds.refresh(Request())
+                with open(credentials_path, 'w') as token_file:
+                    token_file.write(creds.to_json())
         
         # Build the Drive service
         service = build('drive', 'v3', credentials=creds)

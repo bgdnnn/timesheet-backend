@@ -107,6 +107,9 @@ async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: 
     if payload.auto_upload_provider is not None:
         db_user.auto_upload_provider = payload.auto_upload_provider.strip() if payload.auto_upload_provider else None
         
+    if db_user.is_auto_upload_enabled and not db_user.auto_upload_provider:
+        db_user.auto_upload_provider = "gmail"
+        
     if payload.auto_upload_folder is not None:
         db_user.auto_upload_folder = payload.auto_upload_folder.strip() if payload.auto_upload_folder else None
         
@@ -117,7 +120,8 @@ async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: 
         db_user.auto_upload_email = payload.auto_upload_email.strip() if payload.auto_upload_email else None
         
     if payload.auto_upload_app_password is not None:
-        db_user.auto_upload_app_password = encrypt_value(payload.auto_upload_app_password.strip()) if payload.auto_upload_app_password else None
+        clean_password = payload.auto_upload_app_password.replace(" ", "").strip() if payload.auto_upload_app_password else None
+        db_user.auto_upload_app_password = encrypt_value(clean_password) if clean_password else None
         
     if payload.pdf_password is not None:
         db_user.pdf_password = encrypt_value(payload.pdf_password.strip()) if payload.pdf_password else None

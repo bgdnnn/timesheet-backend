@@ -1,6 +1,6 @@
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, Boolean, DateTime, ForeignKey, Float, Date
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Numeric, func
 
 class Base(DeclarativeBase):
@@ -187,3 +187,12 @@ class SystemSetting(Base):
     __tablename__ = "system_settings"
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
     value: Mapped[str] = mapped_column(String(255), nullable=False)
+
+class Holiday(Base):
+    __tablename__ = "holidays"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_by: Mapped[str] = mapped_column(String(255), index=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    type: Mapped[str] = mapped_column(String(32), default="paid") # "paid" or "unpaid"
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
