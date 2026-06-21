@@ -34,7 +34,7 @@ async def google_login(request: Request, returnTo: str | None = None, action: st
     request.session["oauth_google_state"] = state
 
     redirect_uri = settings.OAUTH_REDIRECT_URI
-    return await oauth.google.authorize_redirect(request, redirect_uri, state=state)
+    return await oauth.google.authorize_redirect(request, redirect_uri, state=state, prompt="select_account")
 
 async def run_auto_upload_in_background(email: str):
     import asyncio
