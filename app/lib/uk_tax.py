@@ -77,7 +77,8 @@ def calc_employee_ni_period(period_gross: Decimal, period: str, cfg: UkTaxConfig
     above_band = max(D("0"), period_gross - UEL)
 
     ni = main_band * cfg.main_ni_rate + above_band * cfg.above_uel_rate
-    return ni.quantize(D("0.01"), rounding=ROUND_HALF_UP)
+    from decimal import ROUND_HALF_EVEN
+    return ni.quantize(D("0.01"), rounding=ROUND_HALF_EVEN)
 
 def calc_pay_period(
     gross: Decimal,
@@ -95,7 +96,7 @@ def calc_pay_period(
     annual_tax   = calc_income_tax_annual(annual_gross, cfg)
     tax_period   = deannualize(annual_tax, period, cfg) + tax_offset
 
-    ni = calc_employee_ni_period(taxable_pay, period, cfg) + ni_offset
+    ni = calc_employee_ni_period(gross, period, cfg) + ni_offset
     
     deductions = tax_period + ni + pension
     net_pay = gross - deductions

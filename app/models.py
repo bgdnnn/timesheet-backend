@@ -162,6 +162,18 @@ class PayslipFile(Base):
     tax_week = Column(Integer, nullable=False)
     process_date = Column(Date, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    
+    gross_pay = Column(Numeric(10, 2), nullable=True)
+    paye_tax = Column(Numeric(10, 2), nullable=True)
+    national_insurance = Column(Numeric(10, 2), nullable=True)
+    pension = Column(Numeric(10, 2), nullable=True)
+    net_pay = Column(Numeric(10, 2), nullable=True)
+    tax_code = Column(String(32), nullable=True)
+    tax_period = Column(Integer, nullable=True)
+    ytd_gross = Column(Numeric(10, 2), nullable=True)
+    ytd_tax = Column(Numeric(10, 2), nullable=True)
+    ytd_ni = Column(Numeric(10, 2), nullable=True)
+    deductions_total = Column(Numeric(10, 2), nullable=True)
 
 class Training(Base):
     __tablename__ = "trainings"

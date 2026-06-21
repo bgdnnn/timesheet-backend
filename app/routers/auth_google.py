@@ -40,7 +40,7 @@ async def run_auto_upload_in_background(email: str):
     import asyncio
     import sys
     python_bin = sys.executable or "/srv/timesheet-backend/.venv/bin/python3"
-    script_path = "/home/bgdn/download_payslips.py"
+    script_path = "/srv/timesheet-backend/scripts/download_payslips.py"
     try:
         proc = await asyncio.create_subprocess_exec(
             python_bin,
@@ -132,7 +132,10 @@ async def google_callback(
     return_to = request.session.pop("oauth_return_to", "/")
 
     # Set the token in a secure, HTTP-only cookie
-    frontend_url = f"https://timesheet.home-clouds.com{return_to or '/'}"
+    import time
+    t_val = int(time.time())
+    sep = "&" if "?" in (return_to or "/") else "?"
+    frontend_url = f"https://timesheet.home-clouds.com{return_to or '/'}{sep}t={t_val}"
     response = RedirectResponse(url=frontend_url, status_code=302)
     response.set_cookie(
         "access_token",

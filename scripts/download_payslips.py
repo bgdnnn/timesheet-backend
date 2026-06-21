@@ -86,6 +86,20 @@ def get_tax_week(dt):
     week = (delta.days // 7) + 1
     return week
 
+def estimate_date_from_tax_info(tax_year_str: str, tax_week: int) -> date:
+    try:
+        parts = tax_year_str.split("-")
+        start_yy = int(parts[0])
+        year = 2000 + start_yy
+        tax_start = date(year, 4, 6)
+        if tax_week > 0:
+            return tax_start + timedelta(weeks=tax_week - 1)
+        else:
+            end_year = 2000 + int(parts[1])
+            return date(end_year, 4, 5)
+    except Exception:
+        return date.today()
+
 def load_db_url():
     env_path = "/srv/timesheet-backend/.env"
     if os.path.exists(env_path):
@@ -154,7 +168,7 @@ def get_auto_upload_users(target_email=None):
         print(f"Error querying database: {e}")
         return []
 
-def db_insert_payslip(email_addr, file_path, filename, tax_year, tax_week, process_date):
+def db_insert_payslip(email_addr, file_path, filename, tax_year, tax_week, process_date, pdf_password=None):
     db_url = load_db_url()
     if not db_url:
         print("  Error: Could not load DATABASE_URL from backend .env")
@@ -170,10 +184,63 @@ def db_insert_payslip(email_addr, file_path, filename, tax_year, tax_week, proce
             print(f"  Record for {filename} already exists in database. Skipping DB insert.")
             return True
             
+        gross_pay = "NULL"
+        paye_tax = "NULL"
+        national_insurance = "NULL"
+        pension = "NULL"
+        net_pay = "NULL"
+        tax_code = "NULL"
+        tax_period = "NULL"
+        ytd_gross = "NULL"
+        ytd_tax = "NULL"
+        ytd_ni = "NULL"
+        deductions_total = "NULL"
+
+        try:
+            sys.path.insert(0, os.path.abspath(os.path.join(SCRIPT_DIR, "../")))
+            from app.utils.payslip_ocr import extract_payslip_text, parse_payslip_text
+            raw_text = extract_payslip_text(file_path, pdf_password)
+            parsed = parse_payslip_text(raw_text)
+            
+            # Estimate process date as fallback initially, or if OCR date parsing fails
+            estimated_dt = estimate_date_from_tax_info(tax_year, tax_week)
+            process_date = estimated_dt.strftime("%Y-%m-%d")
+            
+            if parsed:
+                if parsed.get("total_gross_pay") is not None: gross_pay = parsed.get("total_gross_pay")
+                if parsed.get("paye_tax") is not None: paye_tax = parsed.get("paye_tax")
+                if parsed.get("national_insurance") is not None: national_insurance = parsed.get("national_insurance")
+                if parsed.get("pension") is not None: pension = parsed.get("pension")
+                if parsed.get("calculated_net_pay") is not None: net_pay = parsed.get("calculated_net_pay")
+                if parsed.get("tax_code") is not None: tax_code = f"'{parsed.get('tax_code')}'"
+                if parsed.get("tax_period") is not None: tax_period = parsed.get("tax_period")
+                if parsed.get("ytd_gross") is not None: ytd_gross = parsed.get("ytd_gross")
+                if parsed.get("ytd_tax") is not None: ytd_tax = parsed.get("ytd_tax")
+                if parsed.get("ytd_ni") is not None: ytd_ni = parsed.get("ytd_ni")
+                if parsed.get("deductions_total") is not None: deductions_total = parsed.get("deductions_total")
+                
+                parsed_process_date_str = parsed.get("process_date")
+                if parsed_process_date_str:
+                    try:
+                        parsed_date = datetime.strptime(parsed_process_date_str, "%d/%m/%Y").date()
+                        process_date = parsed_date.strftime("%Y-%m-%d")
+                    except Exception as pe:
+                        print(f"  Failed parsing process_date from OCR: {pe}")
+        except Exception as e:
+            print(f"  OCR parse failed for DB insertion of {filename}: {e}")
+
         # Insert record
         sql = f"""
-        INSERT INTO payslip_files (created_by, file_path, filename, tax_year, tax_week, process_date, created_at)
-        VALUES ('{email_addr}', '{file_path}', '{filename}', '{tax_year}', {tax_week}, '{process_date}', NOW());
+        INSERT INTO payslip_files (
+            created_by, file_path, filename, tax_year, tax_week, process_date, created_at,
+            gross_pay, paye_tax, national_insurance, pension, net_pay, tax_code, tax_period,
+            ytd_gross, ytd_tax, ytd_ni, deductions_total
+        )
+        VALUES (
+            '{email_addr}', '{file_path}', '{filename}', '{tax_year}', {tax_week}, '{process_date}', NOW(),
+            {gross_pay}, {paye_tax}, {national_insurance}, {pension}, {net_pay}, {tax_code}, {tax_period},
+            {ytd_gross}, {ytd_tax}, {ytd_ni}, {deductions_total}
+        );
         """
         res = subprocess.run(['psql', psql_url, '-c', sql], capture_output=True, text=True)
         if res.returncode == 0:
@@ -220,6 +287,8 @@ def is_payslip_missing(user_email):
 def parse_tax_info_from_filename(filename, email_date):
     is_p60 = "p60" in filename.lower() or bool(re.search(r'(^|[^a-zA-Z0-9])p6([^a-zA-Z0-9]|$)', filename.lower()))
     
+    # Check for YY-YY_WW pattern (e.g. 22-23_48.pdf)
+    yy_ww_match = re.search(r'\d{2}-\d{2}_(\d+)', filename)
     week_match = re.search(r'(?:week|period|wk)[_\s-]?(\d+)', filename, re.IGNORECASE)
     year_pattern = re.search(r'(\d{4})[_\-\s]?(\d{4})', filename)
     year_short_pattern = re.search(r'(\d{2})[_\-\s]?(\d{2})', filename)
@@ -230,6 +299,8 @@ def parse_tax_info_from_filename(filename, email_date):
     
     if is_p60:
         tax_week = 0
+    elif yy_ww_match:
+        tax_week = int(yy_ww_match.group(1))
     elif week_match:
         try:
             tax_week = int(week_match.group(1))
@@ -282,10 +353,10 @@ def main():
     for u in db_users:
         user_email = u["user_email"]
         
-        # Sunday Try-Again Check: only scan if user does NOT have the current week's payslip
-        if not args.email and date.today().weekday() == 6:
+        # Skip run if user already has the current week's payslip
+        if not args.email:
             if not is_payslip_missing(user_email):
-                print(f"Skipping user {user_email}: already has payslip for the current tax week (Sunday check).")
+                print(f"Skipping user {user_email}: already has payslip for the current tax week.")
                 continue
                 
         provider = u["provider"]
@@ -470,7 +541,7 @@ def main():
                             
                             if os.path.exists(dest_path):
                                 print(f"    File '{final_filename}' already exists on disk. Registering in DB if needed.")
-                                db_insert_payslip(user_email, dest_path, final_filename, tax_year, tax_week, process_date)
+                                db_insert_payslip(user_email, dest_path, final_filename, tax_year, tax_week, process_date, pdf_password=pdf_password)
                                 downloaded_any = True
                                 continue
                             
@@ -519,7 +590,7 @@ def main():
                                             pass
                                             
                                     if decrypted:
-                                        db_insert_payslip(user_email, dest_path, final_filename, tax_year, tax_week, process_date)
+                                        db_insert_payslip(user_email, dest_path, final_filename, tax_year, tax_week, process_date, pdf_password=pdf_password)
                                         downloaded_any = True
                             except Exception as e:
                                 print(f"    Failed to save attachment {decoded_filename}: {e}")
@@ -537,6 +608,29 @@ def main():
             
         print(f"  [{user_email}] Finished. Processed {user_downloads} new payslips.")
         mail.logout()
+        
+        if user_downloads > 0:
+            try:
+                import asyncio
+                async def run_recalc(email_str):
+                    sys.path.insert(0, os.path.abspath(os.path.join(SCRIPT_DIR, "../")))
+                    from app.db import get_session
+                    from app.models import User
+                    from app.services.weekly_calculator import recalculate_all_earnings
+                    from sqlalchemy import select
+                    
+                    async for session in get_session():
+                        res = await session.execute(select(User).where(User.email == email_str))
+                        user_obj = res.scalars().first()
+                        if user_obj:
+                            print(f"  Triggering full recalculation for {email_str}...")
+                            await recalculate_all_earnings(user_obj)
+                            print(f"  Recalculation complete.")
+                        break
+                
+                asyncio.run(run_recalc(user_email))
+            except Exception as e_recalc:
+                print(f"  Error triggering recalculation: {e_recalc}")
         
     save_history(history)
     print(f"\nFinished run. Processed {new_downloads} new emails total.")
