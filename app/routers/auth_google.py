@@ -158,7 +158,11 @@ async def logout(request: Request):
     request.session.clear()
     
     response = JSONResponse(content={"ok": True, "message": "Logged out successfully"})
+    # Delete access_token with both lax and none to match setting environment
+    response.delete_cookie("access_token", path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="lax")
     response.delete_cookie("access_token", path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="none")
+    # Delete session cookie with both lax and none
+    response.delete_cookie(session_cookie_name, path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="lax")
     response.delete_cookie(session_cookie_name, path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="none")
     
     return response
