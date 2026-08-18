@@ -168,7 +168,7 @@ class PayslipFileOut(BaseModel):
 class TrainingOut(BaseModel):
     id: int
     name: str
-    expiry_date: date
+    expiry_date: Optional[date] = None
     filename: str
     mime_type: str
     created_at: datetime

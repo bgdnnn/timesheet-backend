@@ -27,10 +27,16 @@ def get_tax_week(dt: date) -> int:
 
 def calc_cumulative_tax(ytd_taxable_pay, tax_week, tax_code):
     pa = D("12570")
+    is_k_code = False
     if tax_code:
         tax_code = tax_code.upper()
         if tax_code in ["BR", "0T"]:
             pa = D("0")
+        elif tax_code.startswith("K"):
+            is_k_code = True
+            numeric_match = re.match(r"K(\d+)", tax_code)
+            if numeric_match:
+                pa = D(numeric_match.group(1)) * 10
         else:
             numeric_match = re.match(r"(\d+)", tax_code)
             if numeric_match:
@@ -42,7 +48,19 @@ def calc_cumulative_tax(ytd_taxable_pay, tax_week, tax_code):
                     pa = val
 
     pa_cum = int(pa * tax_week / 52)
-    taxable_cum = max(D("0"), ytd_taxable_pay - pa_cum)
+    
+    # Personal Allowance Tapering (above £100,000 annualized)
+    if not is_k_code:
+        taper_start_cum = int(D("100000") * tax_week / 52)
+        if ytd_taxable_pay > taper_start_cum:
+            reduction_cum = int((ytd_taxable_pay - taper_start_cum) / 2)
+            pa_cum = max(0, pa_cum - reduction_cum)
+
+    if is_k_code:
+        taxable_cum = ytd_taxable_pay + pa_cum
+    else:
+        taxable_cum = max(D("0"), ytd_taxable_pay - pa_cum)
+        
     taxable_cum_rounded = int(taxable_cum)
     
     basic_limit_cum = int(D("37700") * tax_week / 52)
@@ -81,32 +99,40 @@ async def recalculate_all_earnings(user_obj: User):
         if not profile and user.employment_type == "employed":
             return
 
-        # 2. Get the latest payslip from database for tax code and anchoring
-        q_latest_pf = select(PayslipFile).where(
+        today = date.today()
+        tax_year_start = get_tax_year_start_date(today)
+
+        # 2. Get all payslips from database and parse them
+        payslips_by_week = {}
+        q_pfs = select(PayslipFile).where(
             PayslipFile.created_by == user.email,
             PayslipFile.gross_pay.isnot(None),
             PayslipFile.paye_tax.isnot(None),
             PayslipFile.net_pay.isnot(None)
-        ).order_by(PayslipFile.tax_year.desc(), PayslipFile.tax_week.desc())
-        latest_pf = (await session.execute(q_latest_pf)).scalars().first()
+        ).order_by(PayslipFile.tax_week.asc())
+        pfs = (await session.execute(q_pfs)).scalars().all()
 
-        # Update profile with the latest parsed payslip values if they exist
-        if latest_pf and profile:
-            profile.tax_code = latest_pf.tax_code or profile.tax_code
-            profile.baseline_gross = latest_pf.gross_pay
-            profile.baseline_paye = latest_pf.paye_tax
-            profile.baseline_ni = latest_pf.national_insurance
-            profile.baseline_pension = latest_pf.pension
-            profile.baseline_net = latest_pf.net_pay
-            session.add(profile)
-            await session.flush()
+        for pf in pfs:
+            pf_week_start = week_monday(pf.process_date - timedelta(weeks=2))
+            if pf_week_start >= (tax_year_start - timedelta(weeks=2)):
+                payslips_by_week[pf_week_start] = {
+                    "tax_code": pf.tax_code,
+                    "total_gross_pay": pf.gross_pay,
+                    "paye_tax": pf.paye_tax,
+                    "national_insurance": pf.national_insurance,
+                    "pension": pf.pension,
+                    "tax_period": pf.tax_week,
+                    "ytd_gross": pf.ytd_gross,
+                    "ytd_tax": pf.ytd_tax,
+                    "ytd_ni": pf.ytd_ni,
+                    "calculated_net_pay": pf.net_pay,
+                    "process_date": pf.process_date,
+                    "source": "db"
+                }
 
+        # Load from JSON if it's newer or not in DB
         safe_user = user_slug_from_identity(user)
-        db_payslip_date = latest_pf.process_date if latest_pf else None
-
         json_path = Path(settings.MEDIA_ROOT) / safe_user / "payslip.json"
-        json_payslip_date = None
-        json_data = {}
         if json_path.exists():
             try:
                 with open(json_path, "r") as f:
@@ -114,70 +140,44 @@ async def recalculate_all_earnings(user_obj: User):
                 p_date_str = json_data.get("process_date")
                 if p_date_str:
                     json_payslip_date = datetime.strptime(p_date_str, "%d/%m/%Y").date()
+                    json_week_start = week_monday(json_payslip_date - timedelta(weeks=2))
+                    if json_week_start >= (tax_year_start - timedelta(weeks=2)):
+                        existing = payslips_by_week.get(json_week_start)
+                        if not existing or (existing.get("process_date") and json_payslip_date > existing["process_date"]):
+                            payslips_by_week[json_week_start] = {
+                                "tax_code": json_data.get("tax_code"),
+                                "total_gross_pay": D(str(json_data.get("total_gross_pay") or 0)),
+                                "paye_tax": D(str(json_data.get("paye_tax") or 0)),
+                                "national_insurance": D(str(json_data.get("national_insurance") or 0)),
+                                "pension": D(str(json_data.get("pension") or 0)),
+                                "tax_period": json_data.get("tax_period"),
+                                "ytd_gross": D(str(json_data.get("ytd_gross") or 0)),
+                                "ytd_tax": D(str(json_data.get("ytd_tax") or 0)),
+                                "ytd_ni": D(str(json_data.get("ytd_ni") or 0)),
+                                "calculated_net_pay": D(str(json_data.get("calculated_net_pay") or 0)),
+                                "process_date": json_payslip_date,
+                                "source": "json"
+                            }
             except Exception:
                 pass
 
-        use_db = False
-        if db_payslip_date and json_payslip_date:
-            if db_payslip_date >= json_payslip_date:
-                use_db = True
-        elif db_payslip_date:
-            use_db = True
+        # Update profile with the latest parsed payslip values if they exist
+        latest_payslip_data = None
+        if payslips_by_week:
+            latest_week = max(payslips_by_week.keys())
+            latest_payslip_data = payslips_by_week[latest_week]
 
-        payslip_week_start = None
-        payslip_data = {}
-        if use_db and latest_pf:
-            payslip_data = {
-                "tax_code": latest_pf.tax_code,
-                "total_gross_pay": latest_pf.gross_pay,
-                "paye_tax": latest_pf.paye_tax,
-                "national_insurance": latest_pf.national_insurance,
-                "pension": latest_pf.pension,
-                "tax_period": latest_pf.tax_week,
-                "ytd_gross": latest_pf.ytd_gross,
-                "ytd_tax": latest_pf.ytd_tax,
-                "ytd_ni": latest_pf.ytd_ni,
-                "calculated_net_pay": latest_pf.net_pay,
-                "process_date": latest_pf.process_date,
-                "source": "db"
-            }
-            payslip_week_start = week_monday(latest_pf.process_date - timedelta(weeks=2))
-        elif json_data:
-            payslip_data = json_data
-            if json_payslip_date:
-                payslip_week_start = week_monday(json_payslip_date - timedelta(weeks=2))
+        if latest_payslip_data and profile:
+            profile.tax_code = latest_payslip_data.get("tax_code") or profile.tax_code
+            profile.baseline_gross = latest_payslip_data.get("total_gross_pay")
+            profile.baseline_paye = latest_payslip_data.get("paye_tax")
+            profile.baseline_ni = latest_payslip_data.get("national_insurance")
+            profile.baseline_pension = latest_payslip_data.get("pension")
+            profile.baseline_net = latest_payslip_data.get("calculated_net_pay")
+            session.add(profile)
+            await session.flush()
 
-        today = date.today()
-        tax_year_start = get_tax_year_start_date(today)
-        if payslip_week_start and payslip_week_start < (tax_year_start - timedelta(weeks=2)):
-            payslip_week_start = None
-            payslip_data = {}
-
-        # 3. Anchor week (Only if employed)
-        if payslip_week_start and user.employment_type == "employed" and profile:
-            # Preservation logic
-            hourly_wage_for_payslip_week = D(user.wage or 0)
-            is_manual = False
-            if payslip_week_start in existing_we_map:
-                if existing_we_map[payslip_week_start]["wage"] is not None:
-                    hourly_wage_for_payslip_week = D(existing_we_map[payslip_week_start]["wage"])
-                is_manual = existing_we_map[payslip_week_start]["manual"]
-
-            payslip_week_earnings = WeeklyEarnings(
-                created_by=user.email,
-                week_start=payslip_week_start,
-                gross_pay=profile.baseline_gross,
-                paye_tax=profile.baseline_paye,
-                national_insurance=profile.baseline_ni,
-                pension=profile.baseline_pension,
-                net_pay=profile.baseline_net,
-                hourly_wage=float(hourly_wage_for_payslip_week),
-                is_manual_wage=is_manual,
-                employment_type="employed"
-            )
-            session.add(payslip_week_earnings)
-
-        # 4. Calculation Loop
+        # 3. Calculation Loop
         q_te = select(TimeEntry).where(
             TimeEntry.created_by == user.email,
             TimeEntry.date >= (tax_year_start - timedelta(weeks=2))
@@ -194,17 +194,45 @@ async def recalculate_all_earnings(user_obj: User):
         max_entry_week = max(entries_by_week.keys()) if entries_by_week else week_monday(today)
         end_week = max(week_monday(today), max_entry_week)
 
-        ytd_gross = D(payslip_data.get("ytd_gross") or 0) if payslip_week_start else D(0)
-        ytd_tax = D(payslip_data.get("ytd_tax") or 0) if payslip_week_start else D(0)
-        ytd_ni = D(payslip_data.get("ytd_ni") or 0) if payslip_week_start else D(0)
-        
-        # Estimate YTD pension using anchor tax period
-        tax_period_val = payslip_data.get("tax_period")
-        ytd_pension = D(str(payslip_data.get("pension") or 0)) * D(str(tax_period_val or 0)) if payslip_week_start else D(0)
+        # Initialize YTD accumulators to 0
+        ytd_gross = D(0)
+        ytd_tax = D(0)
+        ytd_ni = D(0)
+        ytd_pension = D(0)
 
         week = week_monday(tax_year_start - timedelta(weeks=2))
         while week <= end_week:
-            if week == payslip_week_start and user.employment_type == "employed":
+            if week in payslips_by_week and user.employment_type == "employed":
+                p_data = payslips_by_week[week]
+                ytd_gross = D(str(p_data.get("ytd_gross") or 0))
+                ytd_tax = D(str(p_data.get("ytd_tax") or 0))
+                ytd_ni = D(str(p_data.get("ytd_ni") or 0))
+                
+                tax_period_val = p_data.get("tax_period")
+                ytd_pension = D(str(p_data.get("pension") or 0)) * D(str(tax_period_val or 0))
+
+                # Preservation logic for hourly wage in anchor week
+                hourly_wage_for_payslip_week = D(user.wage or 0)
+                is_manual = False
+                if week in existing_we_map:
+                    if existing_we_map[week]["wage"] is not None:
+                        hourly_wage_for_payslip_week = D(existing_we_map[week]["wage"])
+                    is_manual = existing_we_map[week]["manual"]
+
+                payslip_week_earnings = WeeklyEarnings(
+                    created_by=user.email,
+                    week_start=week,
+                    gross_pay=D(str(p_data["total_gross_pay"])),
+                    paye_tax=D(str(p_data["paye_tax"])),
+                    national_insurance=D(str(p_data["national_insurance"])),
+                    pension=D(str(p_data["pension"])),
+                    net_pay=D(str(p_data["calculated_net_pay"])),
+                    hourly_wage=float(hourly_wage_for_payslip_week),
+                    is_manual_wage=is_manual,
+                    employment_type="employed"
+                )
+                session.add(payslip_week_earnings)
+
                 week += timedelta(weeks=1)
                 continue
 

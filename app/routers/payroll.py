@@ -49,5 +49,6 @@ async def calc(inp: PayrollIn, session: AsyncSession = Depends(get_session), use
     pension  = inp.pension_employee_percent if inp.pension_employee_percent is not None else (prof.pension_employee_percent if prof else D("0"))
     tax_off  = prof.tax_offset if prof else D("0")
     ni_off   = prof.ni_offset if prof else D("0")
-    out = calc_pay_period(inp.gross, inp.period, region, pension or D("0"), tax_off or D("0"), ni_off or D("0"))
+    tax_code = prof.tax_code if prof else None
+    out = calc_pay_period(inp.gross, inp.period, region, pension or D("0"), tax_off or D("0"), ni_off or D("0"), tax_code)
     return out

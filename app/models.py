@@ -180,7 +180,7 @@ class Training(Base):
     id = Column(Integer, primary_key=True)
     created_by = Column(String, index=True, nullable=False)
     name = Column(String, nullable=False)
-    expiry_date = Column(Date, nullable=False)
+    expiry_date = Column(Date, nullable=True)
     file_path = Column(String, nullable=False)
     filename = Column(String, nullable=False)
     mime_type = Column(String, nullable=False)

@@ -5,7 +5,7 @@ from sqlalchemy import select, desc
 from pathlib import Path
 import shutil
 from datetime import date
-from typing import List
+from typing import List, Optional
 
 from ..db import get_session
 from ..auth import get_current_user
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/trainings", tags=["trainings"])
 async def upload_training(
     file: UploadFile = File(...),
     name: str = Form(...),
-    expiry_date: date = Form(...),
+    expiry_date: Optional[str] = Form(None),
     user = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)
 ):
@@ -45,10 +45,18 @@ async def upload_training(
     except Exception as e:
         raise HTTPException(500, f"Failed to save file: {e}")
 
+    parsed_expiry_date = None
+    if expiry_date and expiry_date not in ["N/A", "null", "undefined", ""]:
+        from datetime import datetime
+        try:
+            parsed_expiry_date = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(400, "Invalid expiry date format. Use YYYY-MM-DD.")
+
     new_training = Training(
         created_by=user.email,
         name=name,
-        expiry_date=expiry_date,
+        expiry_date=parsed_expiry_date,
         file_path=str(file_path),
         filename=file.filename,
         mime_type=file.content_type
@@ -119,7 +127,10 @@ async def update_training(
 
     if payload.name is not None:
         t.name = payload.name
-    if payload.expiry_date is not None:
+    
+    # Check if expiry_date was explicitly provided, even if it is None (null)
+    exclude_unset = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    if "expiry_date" in exclude_unset:
         t.expiry_date = payload.expiry_date
 
     await session.commit()

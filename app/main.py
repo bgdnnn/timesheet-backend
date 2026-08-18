@@ -10,7 +10,7 @@ from .routers import payslips
 from .routers import payslip_files
 from .routers import trainings
 from .routers import notes, holidays
-from .routers import me, earnings, expenses, admin, admin_backups
+from .routers import me, earnings, expenses, admin, admin_backups, admin_status
 
 # If you also have these routers, leave them; otherwise comment them out.
 from .routers import projects, hotels, time_entries
@@ -64,6 +64,11 @@ app.include_router(hotels.router)
 app.include_router(time_entries.router)
 app.include_router(admin.router)
 app.include_router(admin_backups.router)
+app.include_router(admin_status.router)
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "Timesheet API"}
 
 @app.get("/healthz")
 async def healthz():

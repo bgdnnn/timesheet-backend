@@ -137,7 +137,7 @@ async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: 
         
         # Run downloader script as subprocess
         python_bin = sys.executable or "/srv/timesheet-backend/.venv/bin/python3"
-        script_path = "/home/bgdn/download_payslips.py"
+        script_path = "/srv/timesheet-backend/scripts/download_payslips.py"
         
         try:
             proc = await asyncio.create_subprocess_exec(

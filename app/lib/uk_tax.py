@@ -40,20 +40,30 @@ def deannualize(amount_annual: Decimal, period: str, cfg: UkTaxConfig) -> Decima
 
 def calc_income_tax_annual(annual_gross: Decimal, cfg: UkTaxConfig) -> Decimal:
     pa = cfg.personal_allowance
+    is_k_code = False
     
     if cfg.tax_code:
-        if cfg.tax_code.upper() in ["BR", "0T"]:
+        tax_code = cfg.tax_code.upper()
+        if tax_code in ["BR", "0T"]:
             pa = D("0")
+        elif tax_code.startswith("K"):
+            is_k_code = True
+            numeric_match = re.match(r"K(\d+)", tax_code)
+            if numeric_match:
+                pa = D(numeric_match.group(1)) * 10
         else:
             numeric_match = re.match(r"(\d+)", cfg.tax_code)
             if numeric_match:
                 pa = D(numeric_match.group(1)) * 10
 
-    if annual_gross > cfg.pa_taper_start:
+    if not is_k_code and annual_gross > cfg.pa_taper_start:
         reduction = ((annual_gross - cfg.pa_taper_start) / 2).quantize(D("0.01"))
         pa = max(D("0"), pa - reduction)
     
-    taxable = max(D("0"), annual_gross - pa)
+    if is_k_code:
+        taxable = annual_gross + pa
+    else:
+        taxable = max(D("0"), annual_gross - pa)
 
     basic_band = min(taxable, cfg.basic_rate_limit)
     higher_band = min(max(D("0"), taxable - cfg.basic_rate_limit), max(D("0"), cfg.higher_rate_limit - cfg.basic_rate_limit))
@@ -87,8 +97,9 @@ def calc_pay_period(
     pension_employee_percent: Decimal = D("0.00"),
     tax_offset: Decimal = D("0.00"),
     ni_offset: Decimal = D("0.00"),
+    tax_code: str | None = None,
 ) -> dict:
-    cfg = UkTaxConfig()
+    cfg = UkTaxConfig(tax_code=tax_code)
     pension = (gross * pension_employee_percent).quantize(D("0.01"), rounding=ROUND_HALF_UP)
     taxable_pay = gross - pension
 
