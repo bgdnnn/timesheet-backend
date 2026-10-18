@@ -26,3 +26,4 @@ gdrive-client-secrets.json
 gdrive-token.json
 jail.local
 .env.*
+AGENT_README.md
