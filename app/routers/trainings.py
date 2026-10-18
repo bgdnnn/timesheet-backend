@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from pathlib import Path
 import shutil
+import mimetypes
+import re
+from urllib.parse import quote
 from datetime import date
 from typing import List, Optional
 
@@ -13,6 +16,7 @@ from ..models import Training
 from ..schemas import TrainingOut, TrainingUpdate
 from ..config import settings
 from ..utils.users import user_slug_from_identity
+from ..utils.security import read_decrypted_file, write_encrypted_file
 
 router = APIRouter(prefix="/trainings", tags=["trainings"])
 
@@ -40,8 +44,7 @@ async def upload_training(
 
     try:
         content = await file.read()
-        with file_path.open("wb") as f:
-            f.write(content)
+        write_encrypted_file(file_path, content, user.email)
     except Exception as e:
         raise HTTPException(500, f"Failed to save file: {e}")
 
@@ -76,7 +79,14 @@ async def list_trainings(
     result = await session.execute(q)
     return result.scalars().all()
 
+def make_content_disposition(disposition_type: str, filename: str) -> str:
+    # Sanitize ASCII fallback (remove quotes, commas, semicolons, backslashes)
+    safe_ascii = re.sub(r'[\",;\\/\x00-\x1f\x7f-\xff]', '_', filename)
+    encoded = quote(filename)
+    return f"{disposition_type}; filename=\"{safe_ascii}\"; filename*=utf-8''{encoded}"
+
 @router.get("/{training_id}/file")
+@router.get("/{training_id}/view")
 async def view_training_file(
     training_id: int,
     user = Depends(get_current_user),
@@ -92,7 +102,27 @@ async def view_training_file(
     if not path.exists():
         raise HTTPException(404, "File not found on disk")
 
-    return FileResponse(path, media_type=t.mime_type, content_disposition_type="inline")
+    try:
+        decrypted_bytes = read_decrypted_file(path, user.email)
+        media_type = t.mime_type
+        if not media_type or media_type == "application/octet-stream":
+            guessed, _ = mimetypes.guess_type(t.filename)
+            media_type = guessed or "application/octet-stream"
+        if t.filename.lower().endswith(".pdf"):
+            media_type = "application/pdf"
+
+        return Response(
+            content=decrypted_bytes,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": make_content_disposition("inline", t.filename),
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Failed to decrypt file: {e}")
 
 @router.get("/{training_id}/download")
 async def download_training_file(
@@ -110,7 +140,27 @@ async def download_training_file(
     if not path.exists():
         raise HTTPException(404, "File not found on disk")
 
-    return FileResponse(path, media_type=t.mime_type, filename=t.filename, content_disposition_type="attachment")
+    try:
+        decrypted_bytes = read_decrypted_file(path, user.email)
+        media_type = t.mime_type
+        if not media_type or media_type == "application/octet-stream":
+            guessed, _ = mimetypes.guess_type(t.filename)
+            media_type = guessed or "application/octet-stream"
+        if t.filename.lower().endswith(".pdf"):
+            media_type = "application/pdf"
+
+        return Response(
+            content=decrypted_bytes,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": make_content_disposition("attachment", t.filename),
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Failed to decrypt file: {e}")
 
 @router.patch("/{training_id}", response_model=TrainingOut)
 async def update_training(

@@ -8,7 +8,7 @@ from .routers import auth_google
 from .routers import receipts
 from .routers import payslips
 from .routers import payslip_files
-from .routers import trainings
+from .routers import trainings, construction_details
 from .routers import notes, holidays
 from .routers import me, earnings, expenses, admin, admin_backups, admin_status
 
@@ -53,6 +53,7 @@ app.include_router(earnings.router)
 app.include_router(payslips.router)
 app.include_router(payslip_files.router)
 app.include_router(trainings.router)
+app.include_router(construction_details.router)
 app.include_router(notes.router)
 app.include_router(holidays.router)
 app.include_router(receipts.router)

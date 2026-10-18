@@ -208,3 +208,18 @@ class Holiday(Base):
     type: Mapped[str] = mapped_column(String(32), default="paid") # "paid" or "unpaid"
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ConstructionDetail(Base):
+    __tablename__ = "construction_details"
+    id = Column(Integer, primary_key=True)
+    created_by = Column(String(255), index=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    manufacturer = Column(String(255), index=True, nullable=False)
+    details = Column(String(2000), nullable=True)
+    file_path = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    mime_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=datetime.utcnow, nullable=False)
+

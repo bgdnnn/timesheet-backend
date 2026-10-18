@@ -18,6 +18,18 @@ RETENTION_DAYS=30
 # Create backup directory if it doesn't exist
 mkdir -p "$BACKUP_DIR"
 
+PYTHON_BIN="/srv/timesheet-backend/.venv/bin/python3"
+ALERT_SCRIPT="/srv/timesheet-backend/scripts/send_backup_alert.py"
+LOG_FILE="$BACKUP_DIR/backup.log"
+
+send_alert() {
+    local err_msg="$1"
+    echo "Sending failure alert email..."
+    if [ -f "$ALERT_SCRIPT" ]; then
+        "$PYTHON_BIN" "$ALERT_SCRIPT" --job "Timesheet Google Drive Backup" --error "$err_msg" --log-file "$LOG_FILE"
+    fi
+}
+
 # Perform backup
 echo "Starting backup of database $DB_NAME and media files for Google Drive..."
 
@@ -60,10 +72,15 @@ if [ $DB_DUMP_STATUS -eq 0 ]; then
         if [ -n "$GDRIVE_KEY" ]; then
             /srv/timesheet-backend/.venv/bin/python3 /srv/timesheet-backend/scripts/upload_gdrive.py "$BACKUP_FILE" "$GDRIVE_FOLDER_ID" "$GDRIVE_KEY"
             UPLOAD_STATUS=$?
+            if [ $UPLOAD_STATUS -ne 0 ]; then
+                echo "ERROR: Google Drive upload failed with code $UPLOAD_STATUS"
+                send_alert "Google Drive upload failed with exit code $UPLOAD_STATUS. See recent log excerpt below."
+            fi
         else
             echo "Google Drive Credentials key not found (neither gdrive-token.json nor gcs-credentials.json exists). Skipping cloud upload."
             echo "Please see /srv/timesheet-backend/GDRIVE_BACKUP_GUIDE.md for setup instructions."
             UPLOAD_STATUS=1
+            send_alert "Google Drive credentials key not found on server. Cloud upload skipped."
         fi
         
         # Clean up old local Google Drive backup archives (Keep only 4 most recent)
@@ -74,10 +91,12 @@ if [ $DB_DUMP_STATUS -eq 0 ]; then
         exit $UPLOAD_STATUS
     else
         echo "Failed to create backup archive!"
+        send_alert "Failed to create compressed tar.gz archive for Google Drive backup."
         exit 1
     fi
 else
     rm -rf "$TEMP_DIR"
     echo "Database backup failed!"
+    send_alert "PostgreSQL pg_dump failed while preparing database for Google Drive backup."
     exit 1
 fi

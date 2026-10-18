@@ -204,9 +204,23 @@ async def recalculate_all_earnings(user_obj: User):
         while week <= end_week:
             if week in payslips_by_week and user.employment_type == "employed":
                 p_data = payslips_by_week[week]
-                ytd_gross = D(str(p_data.get("ytd_gross") or 0))
-                ytd_tax = D(str(p_data.get("ytd_tax") or 0))
-                ytd_ni = D(str(p_data.get("ytd_ni") or 0))
+                
+                # Defensively update YTD accumulators:
+                # If YTD value is present and positive, use it; otherwise accumulate from period to prevent 0-drop
+                if p_data.get("ytd_gross") is not None and D(str(p_data["ytd_gross"])) > 0:
+                    ytd_gross = D(str(p_data["ytd_gross"]))
+                else:
+                    ytd_gross += D(str(p_data.get("total_gross_pay") or 0))
+
+                if p_data.get("ytd_tax") is not None and D(str(p_data["ytd_tax"])) > 0:
+                    ytd_tax = D(str(p_data["ytd_tax"]))
+                else:
+                    ytd_tax += D(str(p_data.get("paye_tax") or 0))
+
+                if p_data.get("ytd_ni") is not None and D(str(p_data["ytd_ni"])) > 0:
+                    ytd_ni = D(str(p_data["ytd_ni"]))
+                else:
+                    ytd_ni += D(str(p_data.get("national_insurance") or 0))
                 
                 tax_period_val = p_data.get("tax_period")
                 ytd_pension = D(str(p_data.get("pension") or 0)) * D(str(tax_period_val or 0))

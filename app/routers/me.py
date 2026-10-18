@@ -32,6 +32,7 @@ class MeOut(BaseModel):
     auto_upload_email: str | None = None
     auto_upload_app_password: str | None = None
     pdf_password: str | None = None
+    session_expires_at: int | None = None
 
 class MeUpdate(BaseModel):
     company: str | None = None
@@ -55,11 +56,12 @@ class MeUpdate(BaseModel):
         return v
 
 @router.get("/me", response_model=MeOut)
-async def read_me(user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+async def read_me(request: Request, user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     q = select(User).where(User.email == user.email)
     db_user = (await session.execute(q)).scalars().first()
     if not db_user:
         raise HTTPException(404, "User not found")
+    exp = getattr(request.state, "jwt_payload", {}).get("exp") if hasattr(request.state, "jwt_payload") else None
     return MeOut(
         email=db_user.email,
         full_name=db_user.full_name,
@@ -77,10 +79,11 @@ async def read_me(user=Depends(get_current_user), session: AsyncSession = Depend
         auto_upload_email=db_user.auto_upload_email,
         auto_upload_app_password=decrypt_value(db_user.auto_upload_app_password),
         pdf_password=decrypt_value(db_user.pdf_password),
+        session_expires_at=exp,
     )
 
 @router.put("/me", response_model=MeOut)
-async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
+async def update_me(request: Request, payload: MeUpdate, user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     q = select(User).where(User.email == user.email)
     db_user = (await session.execute(q)).scalars().first()
     if not db_user:
@@ -176,6 +179,7 @@ async def update_me(payload: MeUpdate, user=Depends(get_current_user), session: 
         auto_upload_email=db_user.auto_upload_email,
         auto_upload_app_password=decrypt_value(db_user.auto_upload_app_password),
         pdf_password=decrypt_value(db_user.pdf_password),
+        session_expires_at=getattr(request.state, "jwt_payload", {}).get("exp") if hasattr(request.state, "jwt_payload") else None,
     )
 
 @router.get("/me/payslip")

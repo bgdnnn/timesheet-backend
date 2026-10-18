@@ -24,6 +24,9 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     # Also accept token via cookie (optional)
     if not token:
         token = request.cookies.get("access_token")
+    # Also accept token via query param (optional for inline downloads/viewing)
+    if not token:
+        token = request.query_params.get("token")
 
     if not token:
         raise HTTPException(status_code=401, detail="Missing token")
@@ -36,6 +39,7 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     user = (await session.execute(select(User).where(User.id == uid))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    request.state.jwt_payload = payload
     return user
 
 async def get_admin_user(current_user: User = Depends(get_current_user)):

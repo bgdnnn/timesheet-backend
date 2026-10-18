@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -15,7 +15,7 @@ from ..config import settings
 from ..utils.users import user_slug_from_identity
 from ..utils.tax_year import tax_period_to_date
 from ..utils.payslip_ocr import extract_payslip_text, parse_payslip_text
-from ..utils.security import decrypt_value
+from ..utils.security import decrypt_value, write_encrypted_file, read_decrypted_file
 
 router = APIRouter(prefix="/payslip-files", tags=["payslip-files"])
 
@@ -51,8 +51,7 @@ async def upload_payslip_file(
 
     try:
         content = await file.read()
-        with file_path.open("wb") as f:
-            f.write(content)
+        write_encrypted_file(file_path, content, user.email)
     except Exception as e:
         raise HTTPException(500, f"Failed to save file: {e}")
 
@@ -71,7 +70,7 @@ async def upload_payslip_file(
     deductions_total = None
 
     try:
-        raw_text = extract_payslip_text(str(file_path), pdf_pw)
+        raw_text = extract_payslip_text(content, pdf_pw, user.email)
         parsed = parse_payslip_text(raw_text)
         gross_pay = parsed.get("total_gross_pay")
         paye_tax = parsed.get("paye_tax")
@@ -140,7 +139,15 @@ async def view_payslip_file(
     if not path.exists():
         raise HTTPException(404, "File not found on disk")
 
-    return FileResponse(path, media_type="application/pdf", content_disposition_type="inline")
+    try:
+        decrypted_bytes = read_decrypted_file(path, user.email)
+        return Response(
+            content=decrypted_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{pf.filename}"'}
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Failed to decrypt file: {e}")
 
 @router.get("/{file_id}/download")
 async def download_payslip_file(
@@ -158,7 +165,15 @@ async def download_payslip_file(
     if not path.exists():
         raise HTTPException(404, "File not found on disk")
 
-    return FileResponse(path, media_type="application/pdf", filename=pf.filename, content_disposition_type="attachment")
+    try:
+        decrypted_bytes = read_decrypted_file(path, user.email)
+        return Response(
+            content=decrypted_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{pf.filename}"'}
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Failed to decrypt file: {e}")
 
 @router.delete("/{file_id}")
 async def delete_payslip_file(
@@ -202,7 +217,7 @@ async def run_ocr_on_last_payslip(
     pdf_pw = decrypt_value(user.pdf_password) if hasattr(user, "pdf_password") else None
 
     try:
-        raw_text = extract_payslip_text(str(path), pdf_pw)
+        raw_text = extract_payslip_text(str(path), pdf_pw, user.email)
         parsed_data = parse_payslip_text(raw_text)
         return {
             "raw_text": raw_text,
@@ -234,7 +249,7 @@ async def run_ocr_on_payslip(
     pdf_pw = decrypt_value(user.pdf_password) if hasattr(user, "pdf_password") else None
 
     try:
-        raw_text = extract_payslip_text(str(path), pdf_pw)
+        raw_text = extract_payslip_text(str(path), pdf_pw, user.email)
         parsed_data = parse_payslip_text(raw_text)
         return {
             "raw_text": raw_text,

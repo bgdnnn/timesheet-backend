@@ -147,6 +147,18 @@ async def google_callback(
         path="/",
         domain=settings.SESSION_COOKIE_DOMAIN, # Added domain
     )
+    # Also set readable expiration timestamp cookie for instant client-side detection
+    exp_ts = t_val + (settings.ACCESS_TOKEN_MINUTES * 60)
+    response.set_cookie(
+        "ts_session_exp",
+        str(exp_ts),
+        httponly=False,
+        secure=True,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_MINUTES * 60,
+        path="/",
+        domain=settings.SESSION_COOKIE_DOMAIN,
+    )
     return response
 
 @router.post("/logout")
@@ -161,6 +173,9 @@ async def logout(request: Request):
     # Delete access_token with both lax and none to match setting environment
     response.delete_cookie("access_token", path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="lax")
     response.delete_cookie("access_token", path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="none")
+    # Delete ts_session_exp cookie
+    response.delete_cookie("ts_session_exp", path=cookie_path, domain=cookie_domain, secure=True, httponly=False, samesite="lax")
+    response.delete_cookie("ts_session_exp", path=cookie_path, domain=cookie_domain, secure=True, httponly=False, samesite="none")
     # Delete session cookie with both lax and none
     response.delete_cookie(session_cookie_name, path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="lax")
     response.delete_cookie(session_cookie_name, path=cookie_path, domain=cookie_domain, secure=True, httponly=True, samesite="none")

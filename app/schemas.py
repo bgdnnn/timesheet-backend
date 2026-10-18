@@ -225,3 +225,21 @@ class HolidayOut(HolidayIn):
     created_by: str
     created_at: datetime
     class Config: from_attributes = True
+
+class ConstructionDetailOut(BaseModel):
+    id: int
+    name: str
+    manufacturer: str
+    details: Optional[str] = None
+    filename: str
+    mime_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    class Config: from_attributes = True
+
+class ConstructionDetailUpdate(BaseModel):
+    name: Optional[str] = None
+    manufacturer: Optional[str] = None
+    details: Optional[str] = None
+

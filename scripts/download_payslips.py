@@ -20,6 +20,9 @@ import socket
 socket.setdefaulttimeout(30)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(SCRIPT_DIR, "../")))
+from app.utils.security import write_encrypted_file, read_decrypted_file
+
 CONFIG_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, "../payslip_config.json"))
 HISTORY_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, "../.payslip_history.json"))
 
@@ -199,7 +202,7 @@ def db_insert_payslip(email_addr, file_path, filename, tax_year, tax_week, proce
         try:
             sys.path.insert(0, os.path.abspath(os.path.join(SCRIPT_DIR, "../")))
             from app.utils.payslip_ocr import extract_payslip_text, parse_payslip_text
-            raw_text = extract_payslip_text(file_path, pdf_password)
+            raw_text = extract_payslip_text(file_path, pdf_password, email_addr)
             parsed = parse_payslip_text(raw_text)
             
             # Estimate process date as fallback initially, or if OCR date parsing fails
@@ -564,24 +567,25 @@ def main():
                                                     writer = pypdf.PdfWriter()
                                                     for page in reader.pages:
                                                         writer.add_page(page)
-                                                    with open(dest_path, 'wb') as f:
-                                                        writer.write(f)
-                                                    print(f"    Saved decrypted: {final_filename}")
+                                                    import io
+                                                    buf = io.BytesIO()
+                                                    writer.write(buf)
+                                                    write_encrypted_file(dest_path, buf.getvalue(), user_email)
+                                                    print(f"    Saved decrypted & encrypted at rest: {final_filename}")
                                                     decrypted = True
                                                 else:
                                                     print("    Decryption failed (incorrect password).")
                                             else:
                                                 print("    No 'pdf_password' configured.")
                                         else:
-                                            os.rename(temp_path, dest_path)
-                                            print(f"    Saved: {final_filename}")
+                                            write_encrypted_file(dest_path, payload, user_email)
+                                            print(f"    Saved (encrypted at rest): {final_filename}")
                                             decrypted = True
                                     except Exception as pdf_err:
                                         print(f"    PDF processing failed: {pdf_err}")
-                                        if os.path.exists(temp_path):
-                                            os.rename(temp_path, dest_path)
-                                            print(f"    Saved (kept original): {final_filename}")
-                                            decrypted = True
+                                        write_encrypted_file(dest_path, payload, user_email)
+                                        print(f"    Saved (kept original, encrypted at rest): {final_filename}")
+                                        decrypted = True
                                             
                                     if os.path.exists(temp_path):
                                         try:

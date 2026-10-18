@@ -1,7 +1,13 @@
-from pydantic_settings import BaseSettings
-from typing import List
+import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List, Optional
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_FILE = os.path.join(BASE_DIR, ".env")
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
+
     SESSION_COOKIE_NAME: str = "ts_session"
     SESSION_COOKIE_DOMAIN: str = ".home-clouds.com"   
     SESSION_SAMESITE: str = "none"                    
@@ -19,8 +25,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = ""
     MEDIA_ROOT: str = "/srv/timesheet-backend/media"
 
-    class Config:
-        env_file = ".env"
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_EMAIL: Optional[str] = None
+    BACKUP_ALERT_EMAIL: Optional[str] = None
 
     def frontend_origin(self) -> str:
         # already present in your codebase or add:
