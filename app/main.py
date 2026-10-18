@@ -40,7 +40,7 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.JWT_SECRET,
+    secret_key=settings.SESSION_SECRET or settings.JWT_SECRET,
     session_cookie=getattr(settings, "SESSION_COOKIE_NAME", "ts_session"),
     same_site="none",
     https_only=True,

@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     SESSION_HTTPS_ONLY: bool = True                   
     DATABASE_URL: str
     JWT_SECRET: str
+    # Separate keys so rotating JWT_SECRET doesn't make encrypted data unreadable.
+    # Both fall back to JWT_SECRET for older .env files.
+    ENCRYPTION_SECRET: Optional[str] = None
+    SESSION_SECRET: Optional[str] = None
     JWT_ALG: str = "HS256"
     ACCESS_TOKEN_MINUTES: int = 60
     REFRESH_TOKEN_DAYS: int = 7
@@ -34,6 +38,9 @@ class Settings(BaseSettings):
         return "https://timesheet.home-clouds.com"
 
 settings = Settings()
+
+def encryption_secret() -> str:
+    return settings.ENCRYPTION_SECRET or settings.JWT_SECRET
 
 def cors_origins_list() -> List[str]:
     if not settings.CORS_ORIGINS:

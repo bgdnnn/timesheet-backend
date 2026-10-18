@@ -2,23 +2,23 @@ import base64
 import hashlib
 from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
-from ..config import settings
+from ..config import encryption_secret
 
 # Header prepended to encrypted files to identify them unambiguously
 MAGIC_FILE_HEADER = b"TS_ENC_V1::"
 
 def get_fernet_key() -> bytes:
-    # Derive a 32-byte key from settings.JWT_SECRET
-    return base64.urlsafe_b64encode(hashlib.sha256(settings.JWT_SECRET.encode()).digest())
+    # Derive a 32-byte key from ENCRYPTION_SECRET (falls back to JWT_SECRET)
+    return base64.urlsafe_b64encode(hashlib.sha256(encryption_secret().encode()).digest())
 
 def get_user_fernet_key(user_email: str | None = None) -> bytes:
     """
-    Derives an isolated per-user 32-byte encryption key based on JWT_SECRET and user_email.
+    Derives an isolated per-user 32-byte encryption key based on ENCRYPTION_SECRET and user_email.
     If no user_email is provided, falls back to the master key.
     """
     if not user_email:
         return get_fernet_key()
-    salt = f"{settings.JWT_SECRET}:{user_email.strip().lower()}"
+    salt = f"{encryption_secret()}:{user_email.strip().lower()}"
     return base64.urlsafe_b64encode(hashlib.sha256(salt.encode()).digest())
 
 def encrypt_value(val: str | None) -> str | None:

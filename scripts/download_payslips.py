@@ -113,13 +113,16 @@ def load_db_url():
     return None
 
 def load_jwt_secret():
+    """Returns the secret used for encryption: ENCRYPTION_SECRET, falling back to JWT_SECRET."""
     env_path = "/srv/timesheet-backend/.env"
+    values = {}
     if os.path.exists(env_path):
         with open(env_path, 'r') as f:
             for line in f:
-                if line.strip().startswith("JWT_SECRET="):
-                    return line.strip().split("=", 1)[1]
-    return None
+                key, sep, val = line.strip().partition("=")
+                if sep and key in ("ENCRYPTION_SECRET", "JWT_SECRET"):
+                    values[key] = val
+    return values.get("ENCRYPTION_SECRET") or values.get("JWT_SECRET")
 
 def decrypt_val(encrypted_val, jwt_secret):
     if not encrypted_val or encrypted_val == "None" or encrypted_val == "":
