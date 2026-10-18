@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from pathlib import Path
+import re
 import shutil
 from datetime import date, timedelta
 from typing import List, Optional
@@ -30,6 +31,11 @@ async def upload_payslip_file(
 ):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are allowed")
+    # tax_year and tax_week form the on-disk filename, so they must be strictly formatted
+    if not re.fullmatch(r"\d{2}-\d{2}", tax_year):
+        raise HTTPException(400, "Invalid tax_year; expected format like 25-26")
+    if not 0 <= tax_week <= 53:
+        raise HTTPException(400, "Invalid tax_week; expected 0-53")
 
     # If no process_date provided, calculate a dummy one from the tax week
     if not process_date:

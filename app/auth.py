@@ -24,9 +24,6 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     # Also accept token via cookie (optional)
     if not token:
         token = request.cookies.get("access_token")
-    # Also accept token via query param (optional for inline downloads/viewing)
-    if not token:
-        token = request.query_params.get("token")
 
     if not token:
         raise HTTPException(status_code=401, detail="Missing token")

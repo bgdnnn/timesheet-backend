@@ -91,7 +91,8 @@ async def upload_receipts(
     for up in files:
         daily_index += 1
         ctype = up.content_type or mimetypes.guess_type(up.filename or "")[0] or "application/octet-stream"
-        if not ctype.startswith("image/"):
+        # Raster images only: SVG can carry script and would run on the API origin
+        if ctype not in ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif"):
             raise HTTPException(415, f"Unsupported type: {ctype}")
 
         date_str = d.strftime("%d%m%y")
@@ -140,7 +141,12 @@ async def get_file(receipt_id: int, session: AsyncSession = Depends(get_session)
     p = Path(rec.file_path)
     if not p.exists():
         raise HTTPException(404, "File missing")
-    return FileResponse(str(p), media_type=rec.mime_type or "application/octet-stream", filename=rec.original_filename or p.name)
+    return FileResponse(
+        str(p),
+        media_type=rec.mime_type or "application/octet-stream",
+        filename=rec.original_filename or p.name,
+        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"},
+    )
 
 @router.delete("/{receipt_id}", status_code=204)
 async def delete_receipt(receipt_id: int, session: AsyncSession = Depends(get_session), user=Depends(get_current_user)):

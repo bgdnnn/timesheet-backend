@@ -28,7 +28,8 @@ async def upload_training(
     user = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)
 ):
-    ext = file.filename.lower().split('.')[-1]
+    orig_filename = Path(file.filename or "training").name
+    ext = orig_filename.lower().split('.')[-1]
     if ext not in ["pdf", "png", "jpg", "jpeg"]:
         raise HTTPException(400, "Only PDF, PNG, JPG files are allowed")
 
@@ -39,7 +40,8 @@ async def upload_training(
 
     # Use a safe filename to avoid collisions
     import uuid
-    safe_filename = f"{uuid.uuid4()}_{file.filename}"
+    clean_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', orig_filename)
+    safe_filename = f"{uuid.uuid4()}_{clean_name}"
     file_path = user_trainings_dir / safe_filename
 
     try:
@@ -61,7 +63,7 @@ async def upload_training(
         name=name,
         expiry_date=parsed_expiry_date,
         file_path=str(file_path),
-        filename=file.filename,
+        filename=orig_filename,
         mime_type=file.content_type
     )
     session.add(new_training)

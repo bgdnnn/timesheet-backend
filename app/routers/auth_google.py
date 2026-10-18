@@ -10,6 +10,7 @@ from ..models import User, SystemSetting
 from ..auth import make_token
 from pydantic import BaseModel
 import secrets, time
+from urllib.parse import urlsplit, urlunsplit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -22,10 +23,25 @@ oauth.register(
     client_kwargs={"scope": "openid email profile"},
 )
 
+ALLOWED_RETURN_HOSTS = {"timesheet.home-clouds.com", "www.timesheet.home-clouds.com"}
+
+def safe_return_path(return_to: str | None) -> str:
+    """Reduce returnTo to a local path so the post-login redirect can't leave the frontend."""
+    if not return_to:
+        return "/"
+    parts = urlsplit(return_to)
+    if parts.scheme or parts.netloc:
+        if parts.scheme != "https" or parts.netloc not in ALLOWED_RETURN_HOSTS:
+            return "/"
+        return_to = urlunsplit(("", "", parts.path or "/", parts.query, parts.fragment))
+    if not return_to.startswith("/") or return_to.startswith("//") or "\\" in return_to:
+        return "/"
+    return return_to
+
 @router.get("/google/login")
 async def google_login(request: Request, returnTo: str | None = None, action: str | None = "login"):
     # ensure the session is definitely mutated so cookie is set on this 302
-    request.session["oauth_return_to"] = returnTo or "/"
+    request.session["oauth_return_to"] = safe_return_path(returnTo)
     request.session["oauth_action"] = action or "login"
     request.session["oauth_touch"] = time.time()  # guaranteed write
 
@@ -129,7 +145,7 @@ async def google_callback(
             background_tasks.add_task(run_auto_upload_in_background, user.email)
 
     access = make_token({"sub": str(user.id)}, minutes=settings.ACCESS_TOKEN_MINUTES)
-    return_to = request.session.pop("oauth_return_to", "/")
+    return_to = safe_return_path(request.session.pop("oauth_return_to", "/"))
 
     # Set the token in a secure, HTTP-only cookie
     import time

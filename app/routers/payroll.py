@@ -9,7 +9,7 @@ from ..services.payroll import get_profile, upsert_profile_from_payslip
 from ..models import Payslip
 from ..schemas import PayrollProfileOut
 from ..lib.uk_tax import calc_pay_period, D
-from .auth_google import get_current_user
+from ..auth import get_current_user
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 

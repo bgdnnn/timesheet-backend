@@ -22,7 +22,8 @@ def cors_origins_list():
         return []
     return [x.strip() for x in raw.split(",") if x.strip()]
 
-app = FastAPI(title="Timesheet API")
+# Interactive docs are not exposed publicly
+app = FastAPI(title="Timesheet API", docs_url=None, redoc_url=None, openapi_url=None)
 
 @app.on_event("startup")
 async def on_startup():

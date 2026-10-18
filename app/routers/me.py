@@ -13,7 +13,7 @@ from ..utils.users import user_slug_from_identity
 
 router = APIRouter(prefix="", tags=["me"])
 
-from ..utils.security import encrypt_value, decrypt_value
+from ..utils.security import encrypt_value
 
 class MeOut(BaseModel):
     email: str
@@ -30,8 +30,9 @@ class MeOut(BaseModel):
     auto_upload_folder: str | None = None
     auto_upload_company: str | None = None
     auto_upload_email: str | None = None
-    auto_upload_app_password: str | None = None
-    pdf_password: str | None = None
+    # Secrets are write-only: only report whether one is stored
+    has_auto_upload_app_password: bool = False
+    has_pdf_password: bool = False
     session_expires_at: int | None = None
 
 class MeUpdate(BaseModel):
@@ -77,8 +78,8 @@ async def read_me(request: Request, user=Depends(get_current_user), session: Asy
         auto_upload_folder=db_user.auto_upload_folder,
         auto_upload_company=db_user.auto_upload_company,
         auto_upload_email=db_user.auto_upload_email,
-        auto_upload_app_password=decrypt_value(db_user.auto_upload_app_password),
-        pdf_password=decrypt_value(db_user.pdf_password),
+        has_auto_upload_app_password=bool(db_user.auto_upload_app_password),
+        has_pdf_password=bool(db_user.pdf_password),
         session_expires_at=exp,
     )
 
@@ -122,12 +123,14 @@ async def update_me(request: Request, payload: MeUpdate, user=Depends(get_curren
     if payload.auto_upload_email is not None:
         db_user.auto_upload_email = payload.auto_upload_email.strip() if payload.auto_upload_email else None
         
-    if payload.auto_upload_app_password is not None:
-        clean_password = payload.auto_upload_app_password.replace(" ", "").strip() if payload.auto_upload_app_password else None
-        db_user.auto_upload_app_password = encrypt_value(clean_password) if clean_password else None
-        
-    if payload.pdf_password is not None:
-        db_user.pdf_password = encrypt_value(payload.pdf_password.strip()) if payload.pdf_password else None
+    # Passwords are write-only; a blank value keeps the stored one
+    clean_password = (payload.auto_upload_app_password or "").replace(" ", "").strip()
+    if clean_password:
+        db_user.auto_upload_app_password = encrypt_value(clean_password)
+
+    clean_pdf_password = (payload.pdf_password or "").strip()
+    if clean_pdf_password:
+        db_user.pdf_password = encrypt_value(clean_pdf_password)
 
     await session.commit()
     # refresh
@@ -177,8 +180,8 @@ async def update_me(request: Request, payload: MeUpdate, user=Depends(get_curren
         auto_upload_folder=db_user.auto_upload_folder,
         auto_upload_company=db_user.auto_upload_company,
         auto_upload_email=db_user.auto_upload_email,
-        auto_upload_app_password=decrypt_value(db_user.auto_upload_app_password),
-        pdf_password=decrypt_value(db_user.pdf_password),
+        has_auto_upload_app_password=bool(db_user.auto_upload_app_password),
+        has_pdf_password=bool(db_user.pdf_password),
         session_expires_at=getattr(request.state, "jwt_payload", {}).get("exp") if hasattr(request.state, "jwt_payload") else None,
     )
 

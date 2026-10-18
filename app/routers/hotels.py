@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete
 from ..db import get_session
@@ -49,7 +49,10 @@ async def update_hotel(hid: int, payload: HotelIn, session: AsyncSession = Depen
         )
     )
     await session.commit()
-    return (await session.execute(select(Hotel).where(Hotel.id == hid))).scalar_one()
+    row = (await session.execute(select(Hotel).where(Hotel.id == hid, Hotel.owner_user_id == current.id))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Not found")
+    return row
 
 @router.delete("/{hid}")
 async def delete_hotel(hid: int, session: AsyncSession = Depends(get_session), current=Depends(get_current_user)):

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete
 from datetime import date as DateType
@@ -52,7 +52,10 @@ async def update_note(nid: int, payload: NoteIn, session: AsyncSession = Depends
         )
     )
     await session.commit()
-    return (await session.execute(select(Note).where(Note.id == nid))).scalar_one()
+    row = (await session.execute(select(Note).where(Note.id == nid, Note.created_by == current.email))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Not found")
+    return row
 
 @router.delete("/{nid}")
 async def delete_note(nid: int, session: AsyncSession = Depends(get_session), current=Depends(get_current_user)):

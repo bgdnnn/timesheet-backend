@@ -13,7 +13,7 @@ DB_PASS=$(python3 -c "import urllib.parse, sys; print(urllib.parse.unquote(sys.a
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_${TIMESTAMP}_gdrive.tar.gz"
-RETENTION_DAYS=30
+# Local retention: the 4 most recent *_gdrive archives are kept (see cleanup below)
 
 # Create backup directory if it doesn't exist
 mkdir -p "$BACKUP_DIR"
