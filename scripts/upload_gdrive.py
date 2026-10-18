@@ -7,7 +7,7 @@ from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
-def upload_file(file_path, folder_id, credentials_path):
+def upload_file(file_path, folder_id, credentials_path, keep=0):
     if not os.path.exists(file_path):
         print(f"File not found: {file_path}")
         return False
@@ -59,19 +59,50 @@ def upload_file(file_path, folder_id, credentials_path):
         ).execute()
         
         print(f"Google Drive Upload successful! File ID: {uploaded_file.get('id')}")
+
+        if keep and folder_id:
+            prune_old_backups(service, folder_id, keep)
         return True
     except Exception as e:
         print(f"Google Drive Upload failed: {e}")
         return False
 
+def prune_old_backups(service, folder_id, keep):
+    """Moves all but the newest `keep` backup archives in the folder to the Drive trash (recoverable for 30 days)."""
+    try:
+        files, page_token = [], None
+        while True:
+            res = service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false and name contains '_gdrive.tar.gz'",
+                fields="nextPageToken, files(id, name)",
+                pageToken=page_token,
+            ).execute()
+            files += res.get("files", [])
+            page_token = res.get("nextPageToken")
+            if not page_token:
+                break
+        # Names embed a YYYYMMDD_HHMMSS timestamp, so name order is age order
+        backups = sorted(
+            (f for f in files if f["name"].startswith("timesheet_")),
+            key=lambda f: f["name"], reverse=True,
+        )
+        for f in backups[keep:]:
+            service.files().update(fileId=f["id"], body={"trashed": True}).execute()
+            print(f"Moved old backup to Drive trash: {f['name']}")
+        print(f"Drive retention: keeping {min(len(backups), keep)} most recent backups.")
+    except Exception as e:
+        # Never fail a successful upload because of cleanup
+        print(f"WARNING: Drive retention cleanup failed: {e}")
+
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print("Usage: python upload_gdrive.py <file_path> <folder_id> <credentials_path>")
+        print("Usage: python upload_gdrive.py <file_path> <folder_id> <credentials_path> [keep_count]")
         sys.exit(1)
-        
+
     f_path = sys.argv[1]
     f_id = sys.argv[2]
     creds_path = sys.argv[3]
-    
-    success = upload_file(f_path, f_id, creds_path)
+    keep_count = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+
+    success = upload_file(f_path, f_id, creds_path, keep_count)
     sys.exit(0 if success else 1)

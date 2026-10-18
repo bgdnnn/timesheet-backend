@@ -83,7 +83,7 @@ if [ $DB_DUMP_STATUS -eq 0 ]; then
             UPLOAD_STATUS=1
             send_alert "GPG encryption of the backup archive failed; Google Drive upload skipped."
         elif [ -n "$GDRIVE_KEY" ]; then
-            /srv/timesheet-backend/.venv/bin/python3 /srv/timesheet-backend/scripts/upload_gdrive.py "$ENCRYPTED_FILE" "$GDRIVE_FOLDER_ID" "$GDRIVE_KEY"
+            /srv/timesheet-backend/.venv/bin/python3 /srv/timesheet-backend/scripts/upload_gdrive.py "$ENCRYPTED_FILE" "$GDRIVE_FOLDER_ID" "$GDRIVE_KEY" 8
             UPLOAD_STATUS=$?
             if [ $UPLOAD_STATUS -ne 0 ]; then
                 echo "ERROR: Google Drive upload failed with code $UPLOAD_STATUS"
