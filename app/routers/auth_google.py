@@ -3,11 +3,14 @@ from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import RedirectResponse, JSONResponse
 from authlib.integrations.starlette_client import OAuth
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, update
+from sqlalchemy import select, insert, update, delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from datetime import datetime
+import jwt
 from ..config import settings
 from ..db import get_session
-from ..models import User, SystemSetting
-from ..auth import make_token
+from ..models import User, SystemSetting, RevokedToken
+from ..auth import make_token, get_request_token, decode_token
 from pydantic import BaseModel
 import secrets, time
 from urllib.parse import urlsplit, urlunsplit
@@ -178,10 +181,27 @@ async def google_callback(
     return response
 
 @router.post("/logout")
-async def logout(request: Request):
+async def logout(request: Request, session: AsyncSession = Depends(get_session)):
     session_cookie_name = getattr(settings, "SESSION_COOKIE_NAME", "ts_session")
     cookie_domain = getattr(settings, "SESSION_COOKIE_DOMAIN", None)
     cookie_path = "/"
+
+    # Revoke the token server-side so a copied token stops working too
+    token = get_request_token(request)
+    if token:
+        try:
+            payload = decode_token(token)
+        except jwt.PyJWTError:
+            payload = None
+        if payload:
+            now = datetime.utcnow()
+            await session.execute(delete(RevokedToken).where(RevokedToken.expires_at < now))
+            await session.execute(
+                pg_insert(RevokedToken)
+                .values(jti=payload["jti"], expires_at=datetime.utcfromtimestamp(payload["exp"]))
+                .on_conflict_do_nothing()
+            )
+            await session.commit()
 
     request.session.clear()
     

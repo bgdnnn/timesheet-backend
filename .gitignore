@@ -25,3 +25,4 @@ gcs-credentials.json
 gdrive-client-secrets.json
 gdrive-token.json
 jail.local
+.env.*
