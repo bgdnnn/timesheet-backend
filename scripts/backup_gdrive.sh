@@ -69,8 +69,21 @@ if [ $DB_DUMP_STATUS -eq 0 ]; then
             GDRIVE_KEY=""
         fi
         
-        if [ -n "$GDRIVE_KEY" ]; then
-            /srv/timesheet-backend/.venv/bin/python3 /srv/timesheet-backend/scripts/upload_gdrive.py "$BACKUP_FILE" "$GDRIVE_FOLDER_ID" "$GDRIVE_KEY"
+        # The off-site copy is encrypted; decrypt with: gpg -d file.tar.gz.gpg > file.tar.gz (BACKUP_PASSPHRASE)
+        BACKUP_PASSPHRASE=$(grep "^BACKUP_PASSPHRASE=" "$ENV_FILE" | cut -d '=' -f2-)
+        ENCRYPTED_FILE="$BACKUP_FILE.gpg"
+
+        if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "ERROR: BACKUP_PASSPHRASE missing from .env. Refusing to upload an unencrypted backup."
+            UPLOAD_STATUS=1
+            send_alert "BACKUP_PASSPHRASE missing from .env; Google Drive upload skipped."
+        elif ! gpg --batch --yes --pinentry-mode loopback --symmetric --cipher-algo AES256 \
+                --passphrase-fd 3 -o "$ENCRYPTED_FILE" "$BACKUP_FILE" 3<<<"$BACKUP_PASSPHRASE"; then
+            echo "ERROR: Failed to encrypt backup archive"
+            UPLOAD_STATUS=1
+            send_alert "GPG encryption of the backup archive failed; Google Drive upload skipped."
+        elif [ -n "$GDRIVE_KEY" ]; then
+            /srv/timesheet-backend/.venv/bin/python3 /srv/timesheet-backend/scripts/upload_gdrive.py "$ENCRYPTED_FILE" "$GDRIVE_FOLDER_ID" "$GDRIVE_KEY"
             UPLOAD_STATUS=$?
             if [ $UPLOAD_STATUS -ne 0 ]; then
                 echo "ERROR: Google Drive upload failed with code $UPLOAD_STATUS"
@@ -82,6 +95,7 @@ if [ $DB_DUMP_STATUS -eq 0 ]; then
             UPLOAD_STATUS=1
             send_alert "Google Drive credentials key not found on server. Cloud upload skipped."
         fi
+        rm -f "$ENCRYPTED_FILE"
         
         # Clean up old local Google Drive backup archives (Keep only 4 most recent)
         echo "Cleaning up old local gdrive archives (keeping only 4 most recent)..."
