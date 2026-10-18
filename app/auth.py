@@ -1,5 +1,5 @@
 from fastapi import Depends, HTTPException, status, Request
-from jose import jwt, JWTError
+import jwt
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -30,7 +30,7 @@ async def get_current_user(request: Request, session: AsyncSession = Depends(get
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALG])
         uid = int(payload.get("sub"))
-    except JWTError:
+    except (jwt.PyJWTError, TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user = (await session.execute(select(User).where(User.id == uid))).scalar_one_or_none()

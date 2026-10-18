@@ -3,7 +3,7 @@ uvicorn[standard]
 SQLAlchemy>=2
 asyncpg
 pydantic-settings
-python-jose[cryptography]
+PyJWT>=2.10
 passlib[bcrypt]
 authlib
 python-multipart
