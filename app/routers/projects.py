@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, update, delete
 from ..db import get_session
@@ -8,6 +8,12 @@ from ..models import Project
 from .helpers import apply_sort
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+async def _owned_project(session: AsyncSession, pid: int, current) -> Project:
+    proj = (await session.execute(select(Project).where(Project.id == pid, Project.owner_user_id == current.id))).scalar_one_or_none()
+    if not proj:
+        raise HTTPException(404, "Not found")
+    return proj
 
 @router.get("", response_model=list[ProjectOut])
 async def list_projects(
@@ -64,7 +70,8 @@ async def update_project(
 ):
     # Only allow owner
     res = await session.execute(select(Project).where(Project.id == pid, Project.owner_user_id == current.id))
-    proj = res.scalar_one()
+    if res.scalar_one_or_none() is None:
+        raise HTTPException(404, "Not found")
     await session.execute(
         update(Project).where(Project.id == pid).values(
             name=payload.name,
@@ -75,7 +82,7 @@ async def update_project(
         )
     )
     await session.commit()
-    return (await session.execute(select(Project).where(Project.id == pid))).scalar_one()
+    return await _owned_project(session, pid, current)
 
 @router.delete("/{pid}")
 async def delete_project(
@@ -104,7 +111,7 @@ async def archive_project(
         .values(archived=True)
     )
     await session.commit()
-    return (await session.execute(select(Project).where(Project.id == pid))).scalar_one()
+    return await _owned_project(session, pid, current)
 
 
 @router.post("/{pid}/restore", response_model=ProjectOut)
@@ -119,4 +126,4 @@ async def restore_project(
         .values(archived=False)
     )
     await session.commit()
-    return (await session.execute(select(Project).where(Project.id == pid))).scalar_one()
+    return await _owned_project(session, pid, current)

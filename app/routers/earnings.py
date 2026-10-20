@@ -11,7 +11,7 @@ from ..db import get_session
 from ..auth import get_current_user
 from ..models import WeeklyEarnings, User, PayrollProfile, PayslipFile
 from ..schemas import WeeklyEarningsOut
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from ..services.weekly_calculator import recalculate_all_earnings, calculate_single_week_earnings
 from ..services.payroll import get_profile, D
 from ..utils.users import user_slug_from_identity
@@ -73,7 +73,7 @@ class CalculateWeekIn(BaseModel):
 
 class ManualWageIn(BaseModel):
     week_start: date
-    hourly_wage: float
+    hourly_wage: float = Field(ge=0, le=10000)
 
 @router.get("/ytd", response_model=EarningsYTDOut)
 async def get_earnings_ytd(

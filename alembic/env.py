@@ -17,7 +17,13 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 from app.models import Base
+from app.config import settings
 target_metadata = Base.metadata
+
+# Use the app's DATABASE_URL (from .env) with the sync driver, so no password lives in alembic.ini.
+# `alembic -x url=postgresql://...` overrides it (e.g. to rehearse on a scratch copy).
+db_url = context.get_x_argument(as_dictionary=True).get("url") or settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
+config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

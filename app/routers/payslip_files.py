@@ -5,6 +5,7 @@ from sqlalchemy import select, desc
 from pathlib import Path
 import re
 import shutil
+import uuid
 from datetime import date, timedelta
 from typing import List, Optional
 
@@ -14,9 +15,10 @@ from ..models import PayslipFile
 from ..schemas import PayslipFileOut
 from ..config import settings
 from ..utils.users import user_slug_from_identity
-from ..utils.tax_year import tax_period_to_date
+from ..utils.tax_year import tax_period_to_date, get_tax_year_start_date
 from ..utils.payslip_ocr import extract_payslip_text, parse_payslip_text
 from ..utils.security import decrypt_value, write_encrypted_file, read_decrypted_file
+from ..utils.files import file_response
 
 router = APIRouter(prefix="/payslip-files", tags=["payslip-files"])
 
@@ -92,30 +94,76 @@ async def upload_payslip_file(
     except Exception as ocr_err:
         print(f"OCR parsing failed for manual upload: {ocr_err}")
 
-    new_file = PayslipFile(
-        created_by=user.email,
-        file_path=str(file_path),
-        filename=filename,
-        tax_year=tax_year,
-        tax_week=tax_week,
-        process_date=process_date,
-        gross_pay=gross_pay,
-        paye_tax=paye_tax,
-        national_insurance=national_insurance,
-        pension=pension,
-        net_pay=net_pay,
-        tax_code=tax_code,
-        tax_period=tax_period_val,
-        ytd_gross=ytd_gross,
-        ytd_tax=ytd_tax,
-        ytd_ni=ytd_ni,
-        deductions_total=deductions_total
+    # Re-uploading the same tax year/week replaces the existing payslip row (one per week)
+    existing_q = select(PayslipFile).where(
+        PayslipFile.created_by == user.email,
+        PayslipFile.tax_year == tax_year,
+        PayslipFile.tax_week == tax_week,
+        PayslipFile.doc_type != "document"
     )
-    session.add(new_file)
+    new_file = (await session.execute(existing_q)).scalars().first()
+    if not new_file:
+        new_file = PayslipFile(created_by=user.email, tax_year=tax_year, tax_week=tax_week)
+        session.add(new_file)
+
+    new_file.file_path = str(file_path)
+    new_file.filename = filename
+    new_file.process_date = process_date
+    new_file.gross_pay = gross_pay
+    new_file.paye_tax = paye_tax
+    new_file.national_insurance = national_insurance
+    new_file.pension = pension
+    new_file.net_pay = net_pay
+    new_file.tax_code = tax_code
+    new_file.tax_period = tax_period_val
+    new_file.ytd_gross = ytd_gross
+    new_file.ytd_tax = ytd_tax
+    new_file.ytd_ni = ytd_ni
+    new_file.deductions_total = deductions_total
     await session.commit()
     await session.refresh(new_file)
 
     return new_file
+
+@router.post("/documents/upload", response_model=PayslipFileOut)
+async def upload_payroll_document(
+    file: UploadFile = File(...),
+    title: str = Form(..., max_length=200),
+    process_date: Optional[date] = Form(None),
+    user = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+):
+    """Other payroll paperwork (letters, policies, notices) that isn't a weekly payslip or P60."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are allowed")
+    title = title.strip()
+    if not title:
+        raise HTTPException(400, "Title is required")
+    process_date = process_date or date.today()
+    tax_start = get_tax_year_start_date(process_date).year
+    tax_year = f"{str(tax_start)[2:]}-{str(tax_start + 1)[2:]}"
+
+    docs_dir = Path(settings.MEDIA_ROOT) / user_slug_from_identity(user) / "payslips_pdf" / "documents"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    file_path = docs_dir / f"{uuid.uuid4().hex}.pdf"
+    try:
+        write_encrypted_file(file_path, await file.read(), user.email)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to save file: {e}")
+
+    doc = PayslipFile(
+        created_by=user.email,
+        file_path=str(file_path),
+        filename=title if title.lower().endswith(".pdf") else f"{title}.pdf",
+        doc_type="document",
+        tax_year=tax_year,
+        tax_week=0,
+        process_date=process_date,
+    )
+    session.add(doc)
+    await session.commit()
+    await session.refresh(doc)
+    return doc
 
 @router.get("", response_model=List[PayslipFileOut])
 async def list_payslip_files(
@@ -147,11 +195,7 @@ async def view_payslip_file(
 
     try:
         decrypted_bytes = read_decrypted_file(path, user.email)
-        return Response(
-            content=decrypted_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{pf.filename}"'}
-        )
+        return file_response(decrypted_bytes, pf.filename, "application/pdf", "inline")
     except Exception as e:
         raise HTTPException(500, f"Failed to decrypt file: {e}")
 
@@ -173,11 +217,7 @@ async def download_payslip_file(
 
     try:
         decrypted_bytes = read_decrypted_file(path, user.email)
-        return Response(
-            content=decrypted_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{pf.filename}"'}
-        )
+        return file_response(decrypted_bytes, pf.filename, "application/pdf", "attachment")
     except Exception as e:
         raise HTTPException(500, f"Failed to decrypt file: {e}")
 
@@ -207,7 +247,10 @@ async def run_ocr_on_last_payslip(
     user = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)
 ):
-    q = select(PayslipFile).where(PayslipFile.created_by == user.email).order_by(
+    q = select(PayslipFile).where(
+        PayslipFile.created_by == user.email,
+        PayslipFile.doc_type != "document"
+    ).order_by(
         desc(PayslipFile.tax_year),
         desc(PayslipFile.tax_week)
     ).limit(1)

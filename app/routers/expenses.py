@@ -12,11 +12,13 @@ from ..db import get_session
 from ..auth import get_current_user
 from ..models import Expense, User, Receipt
 from ..schemas import ExpenseOut, ExpenseGroupOut, ExpenseIn
+from .helpers import ensure_owned
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
 @router.post("", response_model=ExpenseOut)
 async def create_expense(expense_in: ExpenseIn, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+    await ensure_owned(session, Receipt, expense_in.receipt_id, Receipt.created_by == user.email, "Receipt")
     expense = Expense(**expense_in.model_dump(), created_by=user.email)
     session.add(expense)
     await session.commit()
@@ -33,6 +35,7 @@ async def update_expense(
     expense = await session.get(Expense, expense_id)
     if not expense or expense.created_by != user.email:
         raise HTTPException(status_code=404, detail="Expense not found")
+    await ensure_owned(session, Receipt, expense_in.receipt_id, Receipt.created_by == user.email, "Receipt")
 
     # Update fields from expense_in
     for field, value in expense_in.model_dump(exclude_unset=True).items():
@@ -52,7 +55,7 @@ async def list_expenses(
     try:
         q = (
             select(Expense, Receipt.original_filename)
-            .join(Receipt, Expense.receipt_id == Receipt.id, isouter=True)
+            .join(Receipt, (Expense.receipt_id == Receipt.id) & (Receipt.created_by == user.email), isouter=True)
             .filter(Expense.created_by == user.email)
             .order_by(Expense.entry_date.desc(), Expense.created_date.desc(), Expense.id.desc())
         )
@@ -80,8 +83,9 @@ async def list_expenses(
                 )
             )
         return expenses
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error listing expenses: {e}\n{traceback.format_exc()}")
+    except Exception:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Error listing expenses")
 
 
 @router.get("/summary", response_model=List[ExpenseGroupOut])

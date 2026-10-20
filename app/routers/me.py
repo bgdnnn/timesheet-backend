@@ -1,6 +1,7 @@
 # app/routers/me.py
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field
+from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from ..db import get_session
@@ -36,25 +37,18 @@ class MeOut(BaseModel):
     session_expires_at: int | None = None
 
 class MeUpdate(BaseModel):
-    company: str | None = None
-    wage: float | None = None
+    company: str | None = Field(default=None, max_length=255)
+    wage: float | None = Field(default=None, ge=0, le=10000)
     is_calculator_enabled: bool | None = None
-    employment_type: str | None = None
-    guild_tax: float | None = None
+    employment_type: Literal["employed", "self_employed"] | None = None
+    guild_tax: float | None = Field(default=None, ge=0, le=10000)
     is_auto_upload_enabled: bool | None = None
-    auto_upload_provider: str | None = None
-    auto_upload_folder: str | None = None
-    auto_upload_company: str | None = None
-    auto_upload_email: str | None = None
-    auto_upload_app_password: str | None = None
-    pdf_password: str | None = None
-
-    @field_validator("wage")
-    @classmethod
-    def non_negative(cls, v):
-        if v is None: return v
-        if v < 0: raise ValueError("wage must be >= 0")
-        return v
+    auto_upload_provider: Literal["gmail", "yahoo", ""] | None = None
+    auto_upload_folder: str | None = Field(default=None, max_length=255)
+    auto_upload_company: str | None = Field(default=None, max_length=255)
+    auto_upload_email: str | None = Field(default=None, max_length=255)
+    auto_upload_app_password: str | None = Field(default=None, max_length=256)
+    pdf_password: str | None = Field(default=None, max_length=256)
 
 @router.get("/me", response_model=MeOut)
 async def read_me(request: Request, user=Depends(get_current_user), session: AsyncSession = Depends(get_session)):

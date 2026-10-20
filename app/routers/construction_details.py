@@ -1,6 +1,5 @@
 import mimetypes
 import re
-from urllib.parse import quote
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -17,6 +16,7 @@ from ..models import ConstructionDetail
 from ..schemas import ConstructionDetailOut, ConstructionDetailUpdate
 from ..utils.users import user_slug_from_identity
 from ..utils.security import read_decrypted_file, write_encrypted_file
+from ..utils.files import file_response
 
 router = APIRouter(prefix="/construction-details", tags=["construction-details"])
 
@@ -24,9 +24,9 @@ router = APIRouter(prefix="/construction-details", tags=["construction-details"]
 @router.post("/upload", response_model=ConstructionDetailOut)
 async def upload_construction_detail(
     file: UploadFile = File(...),
-    name: str = Form(...),
-    manufacturer: str = Form(...),
-    details: Optional[str] = Form(None),
+    name: str = Form(..., max_length=255),
+    manufacturer: str = Form(..., max_length=255),
+    details: Optional[str] = Form(None, max_length=2000),
     user=Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -137,10 +137,6 @@ async def list_manufacturers(
     return manufacturers
 
 
-def make_content_disposition(disposition_type: str, filename: str) -> str:
-    safe_ascii = re.sub(r'[\",;\\/\x00-\x1f\x7f-\xff]', '_', filename)
-    encoded = quote(filename)
-    return f"{disposition_type}; filename=\"{safe_ascii}\"; filename*=utf-8''{encoded}"
 
 @router.get("/{detail_id}/view")
 @router.get("/{detail_id}/file")
@@ -171,16 +167,7 @@ async def view_construction_detail_file(
         if detail.filename.lower().endswith(".pdf"):
             media_type = "application/pdf"
 
-        return Response(
-            content=decrypted_bytes,
-            media_type=media_type,
-            headers={
-                "Content-Disposition": make_content_disposition("inline", detail.filename),
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
-        )
+        return file_response(decrypted_bytes, detail.filename, media_type, "inline")
     except Exception as e:
         raise HTTPException(500, f"Failed to decrypt file: {e}")
 
@@ -213,16 +200,7 @@ async def download_construction_detail_file(
         if detail.filename.lower().endswith(".pdf"):
             media_type = "application/pdf"
 
-        return Response(
-            content=decrypted_bytes,
-            media_type=media_type,
-            headers={
-                "Content-Disposition": make_content_disposition("attachment", detail.filename),
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
-        )
+        return file_response(decrypted_bytes, detail.filename, media_type, "attachment")
     except Exception as e:
         raise HTTPException(500, f"Failed to decrypt file: {e}")
 

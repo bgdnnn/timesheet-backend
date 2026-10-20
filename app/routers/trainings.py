@@ -6,7 +6,6 @@ from pathlib import Path
 import shutil
 import mimetypes
 import re
-from urllib.parse import quote
 from datetime import date
 from typing import List, Optional
 
@@ -17,20 +16,24 @@ from ..schemas import TrainingOut, TrainingUpdate
 from ..config import settings
 from ..utils.users import user_slug_from_identity
 from ..utils.security import read_decrypted_file, write_encrypted_file
+from ..utils.files import file_response
 
 router = APIRouter(prefix="/trainings", tags=["trainings"])
+
+# Stored type comes from the (whitelisted) extension, not from the client's Content-Type header
+TRAINING_TYPES = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
 
 @router.post("/upload", response_model=TrainingOut)
 async def upload_training(
     file: UploadFile = File(...),
-    name: str = Form(...),
+    name: str = Form(..., min_length=1, max_length=255),
     expiry_date: Optional[str] = Form(None),
     user = Depends(get_current_user),
     session: AsyncSession = Depends(get_session)
 ):
     orig_filename = Path(file.filename or "training").name
     ext = orig_filename.lower().split('.')[-1]
-    if ext not in ["pdf", "png", "jpg", "jpeg"]:
+    if ext not in TRAINING_TYPES:
         raise HTTPException(400, "Only PDF, PNG, JPG files are allowed")
 
     safe_user = user_slug_from_identity(user)
@@ -64,7 +67,7 @@ async def upload_training(
         expiry_date=parsed_expiry_date,
         file_path=str(file_path),
         filename=orig_filename,
-        mime_type=file.content_type
+        mime_type=TRAINING_TYPES[ext]
     )
     session.add(new_training)
     await session.commit()
@@ -81,11 +84,6 @@ async def list_trainings(
     result = await session.execute(q)
     return result.scalars().all()
 
-def make_content_disposition(disposition_type: str, filename: str) -> str:
-    # Sanitize ASCII fallback (remove quotes, commas, semicolons, backslashes)
-    safe_ascii = re.sub(r'[\",;\\/\x00-\x1f\x7f-\xff]', '_', filename)
-    encoded = quote(filename)
-    return f"{disposition_type}; filename=\"{safe_ascii}\"; filename*=utf-8''{encoded}"
 
 @router.get("/{training_id}/file")
 @router.get("/{training_id}/view")
@@ -113,16 +111,7 @@ async def view_training_file(
         if t.filename.lower().endswith(".pdf"):
             media_type = "application/pdf"
 
-        return Response(
-            content=decrypted_bytes,
-            media_type=media_type,
-            headers={
-                "Content-Disposition": make_content_disposition("inline", t.filename),
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            }
-        )
+        return file_response(decrypted_bytes, t.filename, media_type, "inline")
     except Exception as e:
         raise HTTPException(500, f"Failed to decrypt file: {e}")
 
@@ -151,16 +140,7 @@ async def download_training_file(
         if t.filename.lower().endswith(".pdf"):
             media_type = "application/pdf"
 
-        return Response(
-            content=decrypted_bytes,
-            media_type=media_type,
-            headers={
-                "Content-Disposition": make_content_disposition("attachment", t.filename),
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            }
-        )
+        return file_response(decrypted_bytes, t.filename, media_type, "attachment")
     except Exception as e:
         raise HTTPException(500, f"Failed to decrypt file: {e}")
 

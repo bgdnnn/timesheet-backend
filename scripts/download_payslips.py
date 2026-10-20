@@ -9,7 +9,6 @@ from email.utils import parsedate_to_datetime
 import traceback
 import pypdf
 import re
-import subprocess
 import base64
 import hashlib
 from cryptography.fernet import Fernet
@@ -61,11 +60,9 @@ def sanitize_filename(name):
     return "".join(c for c in name if c.isalnum() or c in (' ', '_', '-', '.')).strip()
 
 def get_safe_user_slug(email_addr):
-    if not email_addr:
-        return "user"
-    raw = email_addr.split("@")[0]
-    slug = re.sub(r"[^a-z0-9._-]+", "-", raw.lower()).strip("-._")
-    return slug or "user"
+    sys.path.insert(0, os.path.abspath(os.path.join(SCRIPT_DIR, "../")))
+    from app.utils.users import slug_for_email
+    return slug_for_email(email_addr)
 
 def get_tax_year(dt):
     year = dt.year
@@ -112,6 +109,18 @@ def load_db_url():
                     return line.strip().split("=", 1)[1]
     return None
 
+def db_query(sql, params=(), fetch=True):
+    """Run one parameterised statement (values are never formatted into the SQL string)."""
+    import psycopg2
+    from contextlib import closing
+    db_url = load_db_url()
+    if not db_url:
+        raise RuntimeError("Could not load DATABASE_URL")
+    with closing(psycopg2.connect(db_url.replace("postgresql+asyncpg://", "postgresql://"))) as conn:
+        with conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall() if fetch else None
+
 def load_jwt_secret():
     """Returns the secret used for encryption: ENCRYPTION_SECRET, falling back to JWT_SECRET."""
     env_path = "/srv/timesheet-backend/.env"
@@ -136,71 +145,46 @@ def decrypt_val(encrypted_val, jwt_secret):
         return None
 
 def get_auto_upload_users(target_email=None):
-    db_url = load_db_url()
-    if not db_url:
-        print("Error: Could not load DATABASE_URL")
-        return []
-    
-    psql_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-    if target_email:
-        safe_email = target_email.replace("'", "''")
-        sql = f"SELECT email, auto_upload_provider, auto_upload_folder, auto_upload_company, auto_upload_email, auto_upload_app_password, pdf_password FROM users WHERE email = '{safe_email}';"
-    else:
-        sql = "SELECT email, auto_upload_provider, auto_upload_folder, auto_upload_company, auto_upload_email, auto_upload_app_password, pdf_password FROM users WHERE is_auto_upload_enabled = true;"
-    
+    cols = "email, auto_upload_provider, auto_upload_folder, auto_upload_company, auto_upload_email, auto_upload_app_password, pdf_password"
     try:
-        res = subprocess.run(['psql', psql_url, '-F', '\t', '-A', '-t', '-c', sql], capture_output=True, text=True)
-        if res.returncode != 0:
-            print(f"Error fetching users from DB: {res.stderr.strip()}")
-            return []
-            
-        users = []
-        for line in res.stdout.splitlines():
-            if not line.strip():
-                continue
-            parts = line.split('\t')
-            if len(parts) >= 7:
-                users.append({
-                    "user_email": parts[0],
-                    "provider": parts[1],
-                    "folder": parts[2],
-                    "company": parts[3],
-                    "email": parts[4],
-                    "app_password_encrypted": parts[5],
-                    "pdf_password_encrypted": parts[6]
-                })
-        return users
+        if target_email:
+            rows = db_query(f"SELECT {cols} FROM users WHERE email = %s", (target_email,))
+        else:
+            rows = db_query(f"SELECT {cols} FROM users WHERE is_auto_upload_enabled = true")
     except Exception as e:
         print(f"Error querying database: {e}")
         return []
+    return [
+        {
+            "user_email": r[0],
+            "provider": r[1] or "",
+            "folder": r[2] or "",
+            "company": r[3] or "",
+            "email": r[4] or "",
+            "app_password_encrypted": r[5] or "",
+            "pdf_password_encrypted": r[6] or "",
+        }
+        for r in rows
+    ]
 
 def db_insert_payslip(email_addr, file_path, filename, tax_year, tax_week, process_date, pdf_password=None):
-    db_url = load_db_url()
-    if not db_url:
-        print("  Error: Could not load DATABASE_URL from backend .env")
-        return False
-    
     try:
-        psql_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        
         # Check if record already exists
-        check_sql = f"SELECT id FROM payslip_files WHERE created_by='{email_addr}' AND filename='{filename}';"
-        res = subprocess.run(['psql', psql_url, '-t', '-A', '-c', check_sql], capture_output=True, text=True)
-        if res.returncode == 0 and res.stdout.strip():
+        if db_query("SELECT id FROM payslip_files WHERE created_by = %s AND filename = %s", (email_addr, filename)):
             print(f"  Record for {filename} already exists in database. Skipping DB insert.")
             return True
-            
-        gross_pay = "NULL"
-        paye_tax = "NULL"
-        national_insurance = "NULL"
-        pension = "NULL"
-        net_pay = "NULL"
-        tax_code = "NULL"
-        tax_period = "NULL"
-        ytd_gross = "NULL"
-        ytd_tax = "NULL"
-        ytd_ni = "NULL"
-        deductions_total = "NULL"
+
+        gross_pay = None
+        paye_tax = None
+        national_insurance = None
+        pension = None
+        net_pay = None
+        tax_code = None
+        tax_period = None
+        ytd_gross = None
+        ytd_tax = None
+        ytd_ni = None
+        deductions_total = None
 
         try:
             sys.path.insert(0, os.path.abspath(os.path.join(SCRIPT_DIR, "../")))
@@ -218,7 +202,7 @@ def db_insert_payslip(email_addr, file_path, filename, tax_year, tax_week, proce
                 if parsed.get("national_insurance") is not None: national_insurance = parsed.get("national_insurance")
                 if parsed.get("pension") is not None: pension = parsed.get("pension")
                 if parsed.get("calculated_net_pay") is not None: net_pay = parsed.get("calculated_net_pay")
-                if parsed.get("tax_code") is not None: tax_code = f"'{parsed.get('tax_code')}'"
+                if parsed.get("tax_code") is not None: tax_code = parsed.get("tax_code")
                 if parsed.get("tax_period") is not None: tax_period = parsed.get("tax_period")
                 if parsed.get("ytd_gross") is not None: ytd_gross = parsed.get("ytd_gross")
                 if parsed.get("ytd_tax") is not None: ytd_tax = parsed.get("ytd_tax")
@@ -236,25 +220,22 @@ def db_insert_payslip(email_addr, file_path, filename, tax_year, tax_week, proce
             print(f"  OCR parse failed for DB insertion of {filename}: {e}")
 
         # Insert record
-        sql = f"""
-        INSERT INTO payslip_files (
-            created_by, file_path, filename, tax_year, tax_week, process_date, created_at,
-            gross_pay, paye_tax, national_insurance, pension, net_pay, tax_code, tax_period,
-            ytd_gross, ytd_tax, ytd_ni, deductions_total
+        db_query(
+            """
+            INSERT INTO payslip_files (
+                created_by, file_path, filename, tax_year, tax_week, process_date, created_at,
+                gross_pay, paye_tax, national_insurance, pension, net_pay, tax_code, tax_period,
+                ytd_gross, ytd_tax, ytd_ni, deductions_total
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (str(email_addr), str(file_path), filename, tax_year, int(tax_week), process_date,
+             gross_pay, paye_tax, national_insurance, pension, net_pay, tax_code, tax_period,
+             ytd_gross, ytd_tax, ytd_ni, deductions_total),
+            fetch=False,
         )
-        VALUES (
-            '{email_addr}', '{file_path}', '{filename}', '{tax_year}', {tax_week}, '{process_date}', NOW(),
-            {gross_pay}, {paye_tax}, {national_insurance}, {pension}, {net_pay}, {tax_code}, {tax_period},
-            {ytd_gross}, {ytd_tax}, {ytd_ni}, {deductions_total}
-        );
-        """
-        res = subprocess.run(['psql', psql_url, '-c', sql], capture_output=True, text=True)
-        if res.returncode == 0:
-            print(f"  Database record inserted for {filename}.")
-            return True
-        else:
-            print(f"  Failed to insert into database: {res.stderr.strip()}")
-            return False
+        print(f"  Database record inserted for {filename}.")
+        return True
     except Exception as e:
         print(f"  Database insertion error: {e}")
         return False
@@ -275,15 +256,9 @@ def is_payslip_missing(user_email):
         end_y = today.year + 1
     current_year_str = f"{str(start_y)[2:]}-{str(end_y)[2:]}"
     
-    db_url = load_db_url()
-    if not db_url:
-        return True
-        
     try:
-        psql_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        sql = f"SELECT id FROM payslip_files WHERE created_by = '{user_email}' AND tax_year = '{current_year_str}' AND tax_week = {current_week};"
-        res = subprocess.run(['psql', psql_url, '-t', '-A', '-c', sql], capture_output=True, text=True)
-        if res.returncode == 0 and res.stdout.strip():
+        if db_query("SELECT id FROM payslip_files WHERE created_by = %s AND tax_year = %s AND tax_week = %s",
+                    (user_email, current_year_str, current_week)):
             return False
     except Exception as e:
         print(f"Error checking if payslip is missing: {e}")

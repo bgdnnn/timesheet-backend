@@ -94,6 +94,9 @@ async def google_callback(
 
     email = userinfo.get("email")
     full_name = userinfo.get("name")
+    # Accounts are matched by email, so only trust addresses Google has verified
+    if not email or not userinfo.get("email_verified"):
+        return RedirectResponse(url="https://timesheet.home-clouds.com/login?error=email_not_verified", status_code=302)
 
     action = request.session.pop("oauth_action", "login")
 

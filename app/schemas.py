@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel
 from decimal import Decimal
 from datetime import date, datetime
@@ -20,29 +20,36 @@ class UserOut(BaseModel):
     updated_date: datetime | None = None
     class Config: from_attributes = True
 
+# Shared input limits: lengths match the DB columns so oversized input is a 422, not a DB error
+Name = Field(min_length=1, max_length=255)
+Text255 = Field(default=None, max_length=255)
+Hours = Field(default=0.0, ge=0, le=24)
+EmploymentType = Literal["employed", "self_employed"]
+Wage = Field(default=None, ge=0, le=10000)
+
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    company: Optional[str] = None
-    wage: Optional[float] = None
+    full_name: Optional[str] = Text255
+    company: Optional[str] = Text255
+    wage: Optional[float] = Wage
     is_calculator_enabled: Optional[bool] = None
-    employment_type: Optional[str] = None
-    guild_tax: Optional[float] = None
+    employment_type: Optional[EmploymentType] = None
+    guild_tax: Optional[float] = Wage
 
 class AdminUserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    company: Optional[str] = None
-    wage: Optional[float] = None
+    full_name: Optional[str] = Text255
+    company: Optional[str] = Text255
+    wage: Optional[float] = Wage
     is_calculator_enabled: Optional[bool] = None
-    employment_type: Optional[str] = None
-    guild_tax: Optional[float] = None
-    role: Optional[str] = None
+    employment_type: Optional[EmploymentType] = None
+    guild_tax: Optional[float] = Wage
+    role: Optional[Literal["user", "admin"]] = None
 
 class ProjectIn(BaseModel):
-    name: str
-    client: str
-    contract: Optional[str] = ""
-    default_hours_worked: float = 8.0
-    default_travel_time: float = 0.0
+    name: str = Name
+    client: str = Field(max_length=255)
+    contract: Optional[str] = Field(default="", max_length=255)
+    default_hours_worked: float = Field(default=8.0, ge=0, le=24)
+    default_travel_time: float = Hours
 
 class ProjectOut(ProjectIn):
     id: int
@@ -53,8 +60,8 @@ class ProjectOut(ProjectIn):
     class Config: from_attributes = True
 
 class HotelIn(BaseModel):
-    name: str
-    address: Optional[str] = ""
+    name: str = Name
+    address: Optional[str] = Field(default="", max_length=255)
 
 class HotelOut(HotelIn):
     id: int
@@ -66,17 +73,16 @@ class HotelOut(HotelIn):
 class TimeEntryIn(BaseModel):
     date: date
     project_id: int
-    project_name: str
-    hours_worked: float = 0.0
-    travel_time: float = 0.0
+    project_name: str = Field(max_length=255)
+    hours_worked: float = Hours
+    travel_time: float = Hours
     hotel_id: Optional[int] = None
-    hotel_name: Optional[str] = None
-    notes: Optional[str] = None
+    hotel_name: Optional[str] = Text255
+    notes: Optional[str] = Field(default=None, max_length=2000)
 
 class TimeEntryOut(TimeEntryIn):
     id: int
     user_id: int
-    duration_minutes: int
     created_by: str
     created_date: datetime | None = None
     updated_date: datetime | None = None
@@ -94,9 +100,9 @@ class ReceiptOut(BaseModel):
 
 class ExpenseIn(BaseModel):
     entry_date: date
-    vendor: Optional[str] = None
-    expense_type: Optional[str] = None
-    total_amount: Decimal
+    vendor: Optional[str] = Text255
+    expense_type: Optional[str] = Text255
+    total_amount: Decimal = Field(max_digits=10, decimal_places=2)
     receipt_id: Optional[int] = None
 
 class ExpenseOut(BaseModel):
@@ -124,18 +130,7 @@ class ExpenseGroupOut(BaseModel):
 
 class PayrollProfileOut(BaseModel):
     created_by: str
-    username: str | None
     tax_code: str | None
-    ni_number: str | None
-    region: str
-    pension_employee_percent: Decimal | None
-    baseline_gross: Decimal | None
-    baseline_paye: Decimal | None
-    baseline_ni: Decimal | None
-    baseline_pension: Decimal | None
-    baseline_net: Decimal | None
-    tax_offset: Decimal
-    ni_offset: Decimal
     created_date: datetime
     updated_date: datetime
     class Config: from_attributes = True
@@ -161,6 +156,7 @@ class PayslipFileOut(BaseModel):
     filename: str
     tax_year: str
     tax_week: int
+    doc_type: str = "payslip"
     process_date: date
     created_at: datetime
     class Config: from_attributes = True
@@ -175,12 +171,12 @@ class TrainingOut(BaseModel):
     class Config: from_attributes = True
 
 class TrainingUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     expiry_date: Optional[date] = None
 
 class NoteIn(BaseModel):
     date: date
-    content: str
+    content: str = Field(max_length=2000)
 
 class NoteOut(NoteIn):
     id: int
@@ -217,8 +213,8 @@ class ManualPayslipIn(BaseModel):
 
 class HolidayIn(BaseModel):
     date: date
-    type: str
-    notes: Optional[str] = None
+    type: Literal["paid", "unpaid", "gift"]
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
 class HolidayOut(HolidayIn):
     id: int
@@ -239,7 +235,7 @@ class ConstructionDetailOut(BaseModel):
     class Config: from_attributes = True
 
 class ConstructionDetailUpdate(BaseModel):
-    name: Optional[str] = None
-    manufacturer: Optional[str] = None
-    details: Optional[str] = None
+    name: Optional[str] = Text255
+    manufacturer: Optional[str] = Text255
+    details: Optional[str] = Field(default=None, max_length=2000)
 

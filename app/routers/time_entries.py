@@ -5,10 +5,14 @@ from datetime import date as DateType
 from ..db import get_session
 from ..auth import get_current_user
 from ..schemas import TimeEntryIn, TimeEntryOut
-from ..models import TimeEntry
-from .helpers import apply_sort
+from ..models import TimeEntry, Project, Hotel
+from .helpers import apply_sort, ensure_owned
 
 router = APIRouter(prefix="/time-entries", tags=["time_entries"])
+
+async def _check_refs(session: AsyncSession, payload: TimeEntryIn, current):
+    await ensure_owned(session, Project, payload.project_id, Project.owner_user_id == current.id, "Project")
+    await ensure_owned(session, Hotel, payload.hotel_id, Hotel.owner_user_id == current.id, "Hotel")
 
 @router.get("", response_model=list[TimeEntryOut])
 async def list_entries(
@@ -36,7 +40,7 @@ async def list_entries(
 
 @router.post("", response_model=TimeEntryOut)
 async def create_entry(payload: TimeEntryIn, session: AsyncSession = Depends(get_session), current=Depends(get_current_user)):
-    duration = int(round((payload.hours_worked + payload.travel_time) * 60))
+    await _check_refs(session, payload, current)
     res = await session.execute(
         insert(TimeEntry).values(
             user_id=current.id,
@@ -48,7 +52,6 @@ async def create_entry(payload: TimeEntryIn, session: AsyncSession = Depends(get
             hotel_id=payload.hotel_id,
             hotel_name=payload.hotel_name,
             notes=payload.notes,
-            duration_minutes=duration,
             created_by=current.email,
         ).returning(TimeEntry)
     )
@@ -60,7 +63,7 @@ async def create_entry(payload: TimeEntryIn, session: AsyncSession = Depends(get
 
 @router.put("/{tid}", response_model=TimeEntryOut)
 async def update_entry(tid: int, payload: TimeEntryIn, session: AsyncSession = Depends(get_session), current=Depends(get_current_user)):
-    duration = int(round((payload.hours_worked + payload.travel_time) * 60))
+    await _check_refs(session, payload, current)
     await session.execute(
         update(TimeEntry).where(TimeEntry.id == tid, TimeEntry.user_id == current.id).values(
             project_id=payload.project_id,
@@ -71,7 +74,6 @@ async def update_entry(tid: int, payload: TimeEntryIn, session: AsyncSession = D
             hotel_id=payload.hotel_id,
             hotel_name=payload.hotel_name,
             notes=payload.notes,
-            duration_minutes=duration,
         )
     )
     await session.commit()

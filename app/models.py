@@ -1,7 +1,7 @@
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, Boolean, DateTime, ForeignKey, Float, Date
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Numeric, func
+from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Numeric, func, Index, UniqueConstraint, text
 
 class Base(DeclarativeBase):
     pass
@@ -12,10 +12,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    wage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wage: Mapped[float | None] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=True)
     is_calculator_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     employment_type: Mapped[str] = mapped_column(String(32), default="employed") # "employed" or "self_employed"
-    guild_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    guild_tax: Mapped[float | None] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=True)
     has_payslip: Mapped[bool] = mapped_column(Boolean, default=False)
     
     # Automatic upload settings
@@ -34,7 +34,6 @@ class User(Base):
     def hourly_rate(self, value: float | None) -> None:
         self.wage = value
     role: Mapped[str] = mapped_column(String(32), default="user")
-    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)  # optional local login
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -65,6 +64,7 @@ class Hotel(Base):
 
 class TimeEntry(Base):
     __tablename__ = "time_entries"
+    __table_args__ = (Index("ix_time_entries_created_by_date", "created_by", "date"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
@@ -74,7 +74,6 @@ class TimeEntry(Base):
     travel_time: Mapped[float] = mapped_column(Float, default=0.0)
     hotel_id: Mapped[int | None] = mapped_column(ForeignKey("hotels.id", ondelete="SET NULL"), nullable=True)
     hotel_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    duration_minutes: Mapped[int] = mapped_column(Integer, default=0)  # computed
     notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     created_by: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -94,7 +93,7 @@ class Receipt(Base):
 
 class Expense(Base):
     __tablename__ = "expenses"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     created_by = Column(String, index=True, nullable=False)
     receipt_id = Column(Integer, ForeignKey("receipts.id"), nullable=True)
     time_entry_id = Column(Integer, ForeignKey("time_entries.id"), nullable=True)
@@ -111,33 +110,14 @@ class PayrollProfile(Base):
     __tablename__ = "payroll_profiles"
     id = Column(Integer, primary_key=True)
     created_by = Column(String, unique=True, index=True, nullable=False)  # user email
-    username = Column(String, index=True, nullable=True)
-
     tax_code = Column(String, nullable=True)
-    ni_number = Column(String, nullable=True)
-    region = Column(String, nullable=False, default="rUK")
-    pension_employee_percent = Column(Numeric(5,4), nullable=True)  # 0.0500 -> 5%
-
-    baseline_gross = Column(Numeric(10,2), nullable=True)
-    baseline_paye = Column(Numeric(10,2), nullable=True)
-    baseline_ni = Column(Numeric(10,2), nullable=True)
-    baseline_pension = Column(Numeric(10,2), nullable=True)
-    baseline_net = Column(Numeric(10,2), nullable=True)
-
-    ytd_gross = Column(Numeric(10,2), nullable=True)
-    ytd_tax = Column(Numeric(10,2), nullable=True)
-    ytd_ni = Column(Numeric(10,2), nullable=True)
-    ytd_pension = Column(Numeric(10,2), nullable=True)
-
-    # offsets to align calc with payslip
-    tax_offset = Column(Numeric(10,2), nullable=False, default=0)
-    ni_offset = Column(Numeric(10,2), nullable=False, default=0)
 
     created_date = Column(DateTime, server_default=func.now(), nullable=False)
     updated_date = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 class WeeklyEarnings(Base):
     __tablename__ = "weekly_earnings"
+    __table_args__ = (UniqueConstraint("created_by", "week_start", name="uq_weekly_earnings_user_week"),)
     id = Column(Integer, primary_key=True)
     created_by = Column(String, index=True, nullable=False)
     week_start = Column(Date, index=True, nullable=False)
@@ -146,18 +126,24 @@ class WeeklyEarnings(Base):
     national_insurance = Column(Numeric(10,2), nullable=True)
     pension = Column(Numeric(10,2), nullable=True)
     net_pay = Column(Numeric(10,2), nullable=True)
-    hourly_wage: Mapped[float | None] = mapped_column(Float, nullable=True) # New column
+    hourly_wage: Mapped[float | None] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=True)
     employment_type: Mapped[str] = mapped_column(String(32), default="employed")
-    guild_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    guild_tax: Mapped[float | None] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=True)
     is_manual_wage: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 class PayslipFile(Base):
     __tablename__ = "payslip_files"
+    # One payslip/P60 per user, tax year and week; "document" rows (letters, policies...) are exempt
+    __table_args__ = (
+        Index("uq_payslip_files_user_year_week", "created_by", "tax_year", "tax_week",
+              unique=True, postgresql_where=text("doc_type <> 'document'")),
+    )
     id = Column(Integer, primary_key=True)
     created_by = Column(String, index=True, nullable=False)
     file_path = Column(String, nullable=False)
     filename = Column(String, nullable=False) # e.g. 25-26_50.pdf
+    doc_type = Column(String(16), nullable=False, default="payslip", server_default="payslip") # "payslip" (incl. P60 = week 0) or "document"
     tax_year = Column(String(10), nullable=False) # e.g. 25-26
     tax_week = Column(Integer, nullable=False)
     process_date = Column(Date, nullable=False)
@@ -208,6 +194,7 @@ class SystemSetting(Base):
 
 class Holiday(Base):
     __tablename__ = "holidays"
+    __table_args__ = (UniqueConstraint("created_by", "date", name="uq_holidays_user_date"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     created_by: Mapped[str] = mapped_column(String(255), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)

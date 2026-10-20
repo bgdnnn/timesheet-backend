@@ -67,7 +67,8 @@ async def manual_payslip_entry(
     q = select(PayslipFile).where(
         PayslipFile.created_by == user.email,
         PayslipFile.tax_year == tax_year,
-        PayslipFile.tax_week == tax_week
+        PayslipFile.tax_week == tax_week,
+        PayslipFile.doc_type != "document"
     )
     res = await session.execute(q)
     pf = res.scalars().first()

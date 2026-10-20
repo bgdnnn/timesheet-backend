@@ -10,17 +10,20 @@ from PIL import Image
 import pytesseract
 
 from ..db import get_session
-from ..models import Receipt, Expense
+from ..models import Receipt, Expense, TimeEntry
 from ..schemas import ReceiptOut
 from ..config import settings
 from ..auth import get_current_user
 from ..utils.users import user_slug_from_identity
+from .helpers import ensure_owned
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
 AMT = re.compile(r"([£$€])?\s*(\d{1,6}(?:[.,]\d{3})*(?:[.,]\d{2})?)")
 BAD_WORDS = {"receipt","total","subtotal","vat","tax","change","cash","visa","mastercard"}
 CUR_MAP = {"£":"GBP","$":"USD","€":"EUR"}
+# Stored extension comes from the accepted type, never from the client's filename
+IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic", "image/heif": ".heif", "image/gif": ".gif"}
 
 def _user_safe_path(user, entry_date: date) -> Path:
     name = user_slug_from_identity(user)
@@ -76,6 +79,7 @@ async def upload_receipts(
         raise HTTPException(400, "Invalid entry_date; expected YYYY-MM-DD")
     if not files:
         raise HTTPException(400, "No files provided")
+    await ensure_owned(session, TimeEntry, time_entry_id, TimeEntry.user_id == user.id, "Time entry")
 
     base_dir = _user_safe_path(user, d)
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -92,11 +96,11 @@ async def upload_receipts(
         daily_index += 1
         ctype = up.content_type or mimetypes.guess_type(up.filename or "")[0] or "application/octet-stream"
         # Raster images only: SVG can carry script and would run on the API origin
-        if ctype not in ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif"):
+        if ctype not in IMAGE_EXT:
             raise HTTPException(415, f"Unsupported type: {ctype}")
 
         date_str = d.strftime("%d%m%y")
-        ext = Path(up.filename or "").suffix or ".jpg"
+        ext = IMAGE_EXT[ctype]
         new_filename = f"{daily_index}-{date_str}{ext}"
         dest = base_dir / new_filename
 
@@ -155,9 +159,8 @@ async def delete_receipt(receipt_id: int, session: AsyncSession = Depends(get_se
         raise HTTPException(404, "Not found")
 
     # Delete associated expense
-    q = select(Expense).where(Expense.receipt_id == receipt_id)
-    ex = (await session.execute(q)).scalar_one_or_none()
-    if ex:
+    q = select(Expense).where(Expense.receipt_id == receipt_id, Expense.created_by == user.email)
+    for ex in (await session.execute(q)).scalars().all():
         await session.delete(ex)
 
     # Delete receipt file

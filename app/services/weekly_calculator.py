@@ -169,11 +169,6 @@ async def recalculate_all_earnings(user_obj: User):
 
         if latest_payslip_data and profile:
             profile.tax_code = latest_payslip_data.get("tax_code") or profile.tax_code
-            profile.baseline_gross = latest_payslip_data.get("total_gross_pay")
-            profile.baseline_paye = latest_payslip_data.get("paye_tax")
-            profile.baseline_ni = latest_payslip_data.get("national_insurance")
-            profile.baseline_pension = latest_payslip_data.get("pension")
-            profile.baseline_net = latest_payslip_data.get("calculated_net_pay")
             session.add(profile)
             await session.flush()
 
@@ -328,16 +323,6 @@ async def recalculate_all_earnings(user_obj: User):
             session.add(new_we)
 
             week += timedelta(weeks=1)
-
-        if profile:
-            await session.execute(
-                update(PayrollProfile).where(PayrollProfile.id == profile.id).values(
-                    ytd_gross=ytd_gross,
-                    ytd_tax=ytd_tax,
-                    ytd_ni=ytd_ni,
-                    ytd_pension=ytd_pension
-                )
-            )
 
         await session.commit()
 
